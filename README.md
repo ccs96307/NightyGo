@@ -21,8 +21,7 @@ put your stone on the board. not any more, I so sorry, I will add new in the fut
 - Convert to HTML file
 - Optimization
 
-
-
+##
 # 中文說明
 ## NightyGo
 一個可供人記譜用的圍棋應用程式

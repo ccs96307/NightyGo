@@ -2589,8 +2589,6 @@ class Chess(QtWidgets.QLabel):
 
             self.color = 1 if get_turns() % 2 == 0 else 2
 
-            print('換', self.color)
-
             x = int((self.x()-7)/50)
             y = int((self.y()-57)/50)
 
@@ -2607,18 +2605,21 @@ class Chess(QtWidgets.QLabel):
                     if goBoard[j][i] != self.color:
                         self.EatChess(initial_x=i, initial_y=j, Pass=True)
 
-                print('ater first check:')
-                print(self.showBoard())
                 # Check the current stones not dead, if dead, out of the current process
                 test = self.EatChessSelf(initial_x=x, initial_y=y, Pass=True)
                 if test == 'dead':
                     print('不允許自殺')
+                    goBoard = copy.deepcopy(currentBoard)
                 else:
                     self.EatChess()
 
-                    if (self.color == 1 and goBoard == blackPreviousBoard and turns > 3) or (
-                            self.color == 2 and goBoard == whitePreviousBoard and turns > 3):
+                    if (self.color == 1 and goBoard == whitePreviousBoard and turns > 3) or (
+                            self.color == 2 and goBoard == blackPreviousBoard and turns > 3):
+                        print('不允許打劫！')
+                        self.showBoard()
                         goBoard = copy.deepcopy(currentBoard)
+
+                        print('要還原：', self.recoveryStones)
 
                         if self.color == 1:
                             MainWindow.setChessImg(self.recoveryStones, 2)
@@ -2634,20 +2635,20 @@ class Chess(QtWidgets.QLabel):
                         set_turns(turns)
 
                         if self.color == 2:
-                            blackPreviousBoard = copy.deepcopy(currentBoard)
+                            blackPreviousBoard = copy.deepcopy(goBoard)
                             whiteStone = QtGui.QPixmap()
                             whiteStone.load('Image/white_stone.svg')
                             self.setPixmap(whiteStone)
                         elif self.color == 1:
-                            whitePreviousBoard = copy.deepcopy(currentBoard)
+                            whitePreviousBoard = copy.deepcopy(goBoard)
                             blackStone = QtGui.QPixmap()
                             blackStone.load('Image/black_stone.svg')
                             self.setPixmap(blackStone)
 
 
     def showBoard(self):
-        for raw in goBoard:
-            print(raw)
+        for raw in range(len(goBoard)):
+            print(goBoard[raw], '=', blackPreviousBoard[raw], '=', whitePreviousBoard[raw])
 
     def EatChess(self, initial_x=0, initial_y=0, Pass=False):
         passStones = []
@@ -2694,15 +2695,14 @@ class Chess(QtWidgets.QLabel):
                                 passStonesTemp.append((i, j))
                                 deadStones.append((i, j))
 
-                        self.goBoardUpdate(deadStones)
                         self.recoveryStones += deadStones
+                        self.goBoardUpdate(deadStones)
 
                     else:
                         for pos in passStonesTemp:
                             passStones.append(pos)
 
                 if Pass:
-                    self.recoveryStones.clear()
                     break
             if Pass:
                 break

@@ -2,7 +2,7 @@
 import copy
 import sys
 from Board import Ui_MainWindow
-from PyQt5 import QtGui, QtCore, QtWidgets
+from PyQt5 import QtGui, QtCore, QtWidgets, QtMultimedia
 from PyQt5.QtWidgets import QApplication, QMainWindow
 from gameManager import *
 
@@ -12,6 +12,7 @@ goBoard = [[0 for i in range(19)] for j in range(19)]
 blackPreviousBoard = copy.deepcopy(goBoard)
 whitePreviousBoard = copy.deepcopy(goBoard)
 turns = get_turns()
+chessNum = 0
 
 
 class MainWindow(QMainWindow, Ui_MainWindow):
@@ -1831,6 +1832,14 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.c305.setScaledContents(True)
         self.c305.setObjectName("c305")
 
+        # Label
+        self.currentLabel = QtWidgets.QLabel(self.centralwidget)
+        self.currentLabel.setGeometry(QtCore.QRect(7, 57, 20, 20))
+        self.currentLabel.setText("")
+        self.currentLabel.setScaledContents(True)
+        self.currentLabel.setObjectName('currentLabel')
+
+
     def setChessImg(self, deadStones, imgNum):
         stoneImg = QtGui.QPixmap()
         print(deadStones)
@@ -2580,7 +2589,15 @@ class Chess(QtWidgets.QLabel):
         self.recoveryStones = []
 
     def mousePressEvent(self, event):
+        # Audio
+        fullpath = QtCore.QDir.current().absoluteFilePath('Audio/Go Clicked.mp3')
+        media = QtCore.QUrl.fromLocalFile(fullpath)
+        content = QtMultimedia.QMediaContent(media)
+        self.player = QtMultimedia.QMediaPlayer()
+        self.player.setMedia(content)
+
         if event.buttons() == QtCore.Qt.LeftButton:
+            global chessNum
             global goBoard
             global MainWindow
             global blackPreviousBoard
@@ -2634,16 +2651,26 @@ class Chess(QtWidgets.QLabel):
                         print('Turns:', turns)
                         set_turns(turns)
 
+                        self.player.play()
+
                         if self.color == 2:
                             blackPreviousBoard = copy.deepcopy(goBoard)
                             whiteStone = QtGui.QPixmap()
                             whiteStone.load('Image/white_stone.svg')
                             self.setPixmap(whiteStone)
+                            Img = QtGui.QPixmap()
+                            Img.load('Image/RedLabel.png')
+                            MainWindow.currentLabel.setPixmap(Img)
+                            MainWindow.currentLabel.move(self.x() + 11.5, self.y() + 11.5)
                         elif self.color == 1:
                             whitePreviousBoard = copy.deepcopy(goBoard)
                             blackStone = QtGui.QPixmap()
                             blackStone.load('Image/black_stone.svg')
                             self.setPixmap(blackStone)
+                            Img = QtGui.QPixmap()
+                            Img.load('Image/RedLabel.png')
+                            MainWindow.currentLabel.setPixmap(Img)
+                            MainWindow.currentLabel.move(self.x() + 12, self.y() + 12)
 
 
     def showBoard(self):
@@ -2770,7 +2797,6 @@ class Chess(QtWidgets.QLabel):
                     break
             if Pass:
                 break
-
 
     def checkAroundState(self, x, y):
         aroundStones = []

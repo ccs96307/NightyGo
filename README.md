@@ -3,10 +3,11 @@
 A Go program for recording your game.
 
 ## Version
-20190901 ver.0.0.1
+20190903 ver.0.0.2
 
 ## Functions
-put your stone on the board. not any more, I so sorry, I will add new in the future.
+- put your stone on the board.
+- A red lebel will show at the current stone
 
 ## TODO
 - Audio effects
@@ -27,10 +28,11 @@ put your stone on the board. not any more, I so sorry, I will add new in the fut
 一個可供人記譜用的圍棋應用程式
 
 ## 版本
-20190901 ver.0.0.1
+20190903 ver.0.0.2
 
 ## 功能
-目前僅只能放置棋子到棋盤上，提子、打劫、不能自殺 ...... 等等的邏輯已經完成。還有需要優化的部份，我會繼續更新。
+-目前僅只能放置棋子到棋盤上，提子、打劫、不能自殺 ...... 等等的邏輯已經完成。
+-有紅色光標會出現在當前的棋子上
 
 ## TODO
 - 加入落子音效

@@ -10,7 +10,6 @@ A Go program for recording your game.
 - A red lebel will show at the current stone
 
 ## TODO
-- Audio effects
 - Convert a sgf file
 - Graphic tree
 - Any play mode (you can put the white stone or black stone when you want!)
@@ -35,7 +34,6 @@ A Go program for recording your game.
 - 有紅色光標會出現在當前的棋子上
 
 ## TODO
-- 加入落子音效
 - 轉換成 sgf 檔案（可以存檔）
 - 圖形化的流程樹（你可以自動回滾到任何想要的地方！）
 - 任意落子模式 (你可以自由落下黑棋白棋，方便製作死活提！)

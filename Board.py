@@ -8,6 +8,7 @@
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 
+
 class Ui_MainWindow(object):
     def setupUi(self, MainWindow):
         MainWindow.setObjectName("MainWindow")
@@ -20,7 +21,7 @@ class Ui_MainWindow(object):
         self.board = QtWidgets.QLabel(self.centralwidget)
         self.board.setGeometry(QtCore.QRect(-2, 48, 960, 960))
         self.board.setText("")
-        self.board.setPixmap(QtGui.QPixmap("Image/board02.png"))
+        self.board.setPixmap(QtGui.QPixmap("Image/board.png"))
         self.board.setScaledContents(True)
         self.board.setObjectName("board")
         MainWindow.setCentralWidget(self.centralwidget)

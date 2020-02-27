@@ -22,6 +22,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         super(self.__class__, self).__init__()
         self.setupUi(self)
+        self.setupUi(self)
         self.setWindowTitle('Nighty Go')
         self.statusBar().showMessage('歡迎使用 Nighty Go 記譜程式。')
 
@@ -2659,7 +2660,7 @@ class Chess(QtWidgets.QLabel):
                             whiteStone.load('Image/white_stone.svg')
                             self.setPixmap(whiteStone)
                             Img = QtGui.QPixmap()
-                            Img.load('Image/RedLabel.png')
+                            Img.load('Image/RedLabel.svg')
                             MainWindow.currentLabel.setPixmap(Img)
                             MainWindow.currentLabel.move(self.x() + 11.5, self.y() + 11.5)
                         elif self.color == 1:
@@ -2668,7 +2669,7 @@ class Chess(QtWidgets.QLabel):
                             blackStone.load('Image/black_stone.svg')
                             self.setPixmap(blackStone)
                             Img = QtGui.QPixmap()
-                            Img.load('Image/RedLabel.png')
+                            Img.load('Image/RedLabel.svg')
                             MainWindow.currentLabel.setPixmap(Img)
                             MainWindow.currentLabel.move(self.x() + 12, self.y() + 12)
 

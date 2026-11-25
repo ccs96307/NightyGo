@@ -135,7 +135,7 @@ class GoGame:
                 for stone_x, stone_y in group:
                     candidate[stone_y][stone_x] = EMPTY
 
-        own_group, own_liberties = self._group_and_liberties(candidate, (x, y))
+        _, own_liberties = self._group_and_liberties(candidate, (x, y))
         if not own_liberties:
             raise IllegalMove("Suicide moves are not allowed")
 

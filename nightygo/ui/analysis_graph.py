@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from PySide6 import QtCore, QtGui, QtWidgets
+
 from nightygo.i18n import translate
 
 

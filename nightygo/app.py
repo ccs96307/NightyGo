@@ -8,7 +8,6 @@ from PySide6 import QtCore, QtWidgets
 
 from nightygo.ui.main_window import MainWindow
 
-
 logger = logging.getLogger("nightygo")
 
 

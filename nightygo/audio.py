@@ -1,11 +1,11 @@
 """Low-latency user interface sounds."""
 
-from pathlib import Path
 import logging
+from pathlib import Path
+from typing import ClassVar
 
 from PySide6.QtCore import QUrl
 from PySide6.QtMultimedia import QSoundEffect
-
 
 logger = logging.getLogger(__name__)
 
@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 class StonePlacementSound:
     """Preloads several placement sounds and plays the selected effect."""
 
-    SOUND_FILES = {
+    SOUND_FILES: ClassVar[dict[str, str]] = {
         "Go stone · wooden board 1": "go_stone_01.wav",
         "Go stone · wooden board 2": "go_stone_02.wav",
         "Go stone · wooden board 3": "go_stone_03.wav",
@@ -82,7 +82,7 @@ class StonePlacementSound:
 class StoneCaptureSound:
     """Play a short Go-stone pickup pattern sized to the captured group."""
 
-    SOUND_FILES = {
+    SOUND_FILES: ClassVar[dict[str, str]] = {
         "single": "capture_single.wav",
         "small_group": "capture_small_group.wav",
         "group": "capture_group.wav",

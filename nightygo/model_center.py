@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 import csv
 import hashlib
 import json
@@ -14,13 +13,14 @@ import shutil
 import subprocess
 import tempfile
 import zipfile
+from collections.abc import Sequence
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path
 
 from PySide6 import QtCore, QtNetwork, QtWidgets
-from nightygo.i18n import translate
 
+from nightygo.i18n import translate
 
 logger = logging.getLogger(__name__)
 CATALOG_URL = "https://katagotraining.org/networks/"
@@ -238,7 +238,7 @@ class _NetworkTableParser(HTMLParser):
         if len(cells) < 4:
             return
         name = cells[0][0]
-        if not name.startswith("kata1-"):
+        if not re.fullmatch(r"kata1-[A-Za-z0-9._-]+", name):
             return
         urls = [url for _text, links in cells for url in links]
         model_url = next((url for url in urls if url.endswith(".bin.gz")), "")

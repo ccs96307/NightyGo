@@ -8,7 +8,6 @@ from functools import lru_cache
 
 from PySide6 import QtCore, QtGui
 
-
 BOARD_MATERIALS = {
     "Classic wood": "wood",
     "Starfield": "starfield",

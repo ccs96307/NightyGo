@@ -6,10 +6,10 @@ import time
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from nightygo.i18n import translate
 from nightygo.model import BLACK, WHITE
 from nightygo.preview import stone_pixmap
 from nightygo.sgf import SgfNode
-from nightygo.i18n import translate
 
 
 class _MoveItem(QtWidgets.QGraphicsObject):

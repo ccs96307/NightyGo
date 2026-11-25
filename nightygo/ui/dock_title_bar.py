@@ -1,6 +1,7 @@
 """Large, accessible title-bar controls for dockable panels."""
 
 from PySide6 import QtCore, QtGui, QtWidgets
+
 from nightygo.i18n import translate
 
 

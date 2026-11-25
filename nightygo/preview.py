@@ -10,7 +10,6 @@ from PySide6 import QtCore, QtGui
 
 from nightygo.materials import STONE_MATERIALS
 
-
 _STONE_FILES = {
     1: "black_stone.svg",
     2: "white_stone.svg",

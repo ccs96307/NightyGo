@@ -43,4 +43,17 @@ async function search({moves,toPlay,komi,visits}) {
   const result={best:moduleInstance.HEAP32[best>>2],winrate:moduleInstance.HEAPF32[wr>>2],visits:moduleInstance.HEAP32[done>>2],pv:Array.from(moduleInstance.HEAP32.subarray(pv>>2,(pv>>2)+moduleInstance.HEAP32[pvLen>>2]))};
   [best,wr,pv,pvLen,done].forEach(ptr=>moduleInstance._free(ptr));return result;
 }
-self.onmessage=async({data})=>{try{if(data.type==='load')self.postMessage({type:'loaded',result:await load(data)});else if(data.type==='analyze')self.postMessage({type:'analysis',result:await analyze(data)});else if(data.type==='search')self.postMessage({type:'search',result:await search(data)});}catch(error){self.postMessage({type:'error',message:error.message||String(error)});}};
+let requestQueue=Promise.resolve();
+self.onmessage=({data})=>{
+  const run=async()=>{
+    try{
+      let result;
+      if(data.type==='load')result=await load(data);
+      else if(data.type==='analyze')result=await analyze(data);
+      else if(data.type==='search')result=await search(data);
+      else throw new Error(`Unknown worker request: ${data.type}`);
+      self.postMessage({requestId:data.requestId,type:data.type==='load'?'loaded':data.type,result});
+    }catch(error){self.postMessage({requestId:data.requestId,type:'error',message:error.message||String(error)});}
+  };
+  requestQueue=requestQueue.then(run,run);
+};

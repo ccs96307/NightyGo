@@ -9,7 +9,6 @@ from dataclasses import dataclass
 
 from PySide6 import QtCore
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -315,7 +314,7 @@ class GtpEngine(QtCore.QObject):
         command = self._queue.popleft()
         self._active_id = command.command_id
         self._inflight[command.command_id] = command
-        payload = f"{command.command_id} {command.text}\n".encode("utf-8")
+        payload = f"{command.command_id} {command.text}\n".encode()
         logger.debug("GTP -> %s", command.text)
         self._process.write(payload)
 
@@ -391,9 +390,7 @@ class GtpEngine(QtCore.QObject):
             self._set_status(self.READY)
             self.ready.emit(self._name, self._version)
             logger.info("GTP engine ready: %s %s", self._name, self._version)
-        elif command.tag == "analysis":
-            self._set_status(self.READY)
-        elif command.tag == "stop_analysis":
+        elif command.tag == "analysis" or command.tag == "stop_analysis":
             self._set_status(self.READY)
 
     def _read_stderr(self) -> None:

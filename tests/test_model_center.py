@@ -28,6 +28,15 @@ class ModelCatalogTests(unittest.TestCase):
         self.assertEqual(models[0].tier, "strong")
         self.assertTrue(models[0].download_url.endswith(".bin.gz"))
 
+    def test_rejects_model_names_that_could_escape_install_directory(self) -> None:
+        html = """
+        <table><tr><th>Name</th><th>Uploaded</th><th>Rating</th><th>Network</th></tr>
+        <tr><td>kata1-../../outside</td><td>today</td><td>1</td>
+        <td><a href="https://media.katagotraining.org/model.bin.gz">Download</a></td></tr>
+        </table>
+        """
+        self.assertEqual(parse_model_catalog(html), [])
+
     def test_classifies_architectures(self) -> None:
         self.assertEqual(classify_model("kata1-b15c192-s100"), "light")
         self.assertEqual(classify_model("kata1-b18c384nbt-s100"), "balanced")

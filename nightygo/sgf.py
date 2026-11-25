@@ -9,6 +9,7 @@ from __future__ import annotations
 import codecs
 import re
 from dataclasses import dataclass, field
+from itertools import pairwise
 from pathlib import Path
 
 from PySide6 import QtCore
@@ -63,7 +64,7 @@ class _Parser:
             self._skip_whitespace()
         if not sequence:
             self._error("A game tree must contain a node")
-        for current, following in zip(sequence, sequence[1:]):
+        for current, following in pairwise(sequence):
             current.children.append(following)
         last = sequence[-1]
         while self._peek() == "(":

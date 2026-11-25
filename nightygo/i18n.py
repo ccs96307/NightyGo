@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from PySide6 import QtWidgets
 
-
 LANGUAGES = {
     "en": "English",
     "zh_TW": "繁體中文",

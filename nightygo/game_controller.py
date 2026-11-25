@@ -7,10 +7,16 @@ from pathlib import Path
 
 from PySide6 import QtCore
 
-from nightygo.model import BLACK, WHITE, GoGame, IllegalMove, Move
-from nightygo.sgf import SgfCollection, SgfError, SgfNode, read_sgf, serialize_sgf, write_sgf
+from nightygo.model import BLACK, WHITE, GoGame, IllegalMove
+from nightygo.sgf import (
+    SgfCollection,
+    SgfError,
+    SgfNode,
+    read_sgf,
+    serialize_sgf,
+    write_sgf,
+)
 from nightygo.sgf_session import SgfGameSession
-
 
 logger = logging.getLogger(__name__)
 
@@ -244,10 +250,11 @@ class GameController(QtCore.QObject):
     def set_game_info(self, values: dict[str, str]) -> None:
         """Update standard SGF root metadata in one state change."""
         allowed = {"PB", "PW", "BR", "WR", "DT", "EV", "RO", "RE", "KM", "RU", "TM", "OT"}
+        invalid = next((identifier for identifier in values if identifier not in allowed), None)
+        if invalid is not None:
+            self._emit_error(f"Unsupported game-info property: {invalid}")
+            return
         for identifier, value in values.items():
-            if identifier not in allowed:
-                self._emit_error(f"Unsupported game-info property: {identifier}")
-                return
             if value.strip():
                 self.session.root.properties[identifier] = [value.strip()]
             else:

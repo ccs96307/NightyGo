@@ -19,7 +19,11 @@ class GameLibrary:
     @property
     def recent_paths(self) -> list[str]:
         values = self._settings.value("library/recent", [])
-        return [str(path) for path in values if Path(path).is_file()]
+        if isinstance(values, str):
+            values = [values]
+        if not isinstance(values, list):
+            return []
+        return [path for path in values if isinstance(path, str) and Path(path).is_file()]
 
     def touch(self, path: str | Path) -> None:
         normalized = str(Path(path).expanduser().resolve())
@@ -60,4 +64,10 @@ class GameLibrary:
             value = json.loads(str(self._settings.value("library/tags", "{}")))
         except (TypeError, json.JSONDecodeError):
             return {}
-        return value if isinstance(value, dict) else {}
+        if not isinstance(value, dict):
+            return {}
+        return {
+            str(path): [tag for tag in tags if isinstance(tag, str)]
+            for path, tags in value.items()
+            if isinstance(tags, list)
+        }

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from PySide6 import QtGui, QtWidgets
 
-
 _PALETTES = {
     "Dark": {
         "window": "#0b1018",

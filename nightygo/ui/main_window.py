@@ -1,24 +1,20 @@
 """Main NightyGo application window."""
 
-from pathlib import Path
 import logging
 import shlex
 import subprocess
+from pathlib import Path
 
 from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtQuickWidgets import QQuickWidget
 
 from nightygo.audio import StoneCaptureSound, StonePlacementSound
 from nightygo.engine import AnalysisMove, AnalysisRoot, EngineConfig, GtpEngine
-from nightygo.model import BLACK, WHITE
-from nightygo.materials import STONE_MATERIALS
 from nightygo.game_controller import GameController
-from nightygo.ui.board_widget import BoardWidget
-from nightygo.ui.dock_title_bar import DockTitleBar
-from nightygo.ui.game_tree_view import GameTreeView
-from nightygo.ui.analysis_graph import AnalysisGraph
-from nightygo.sgf_session import SgfGameSession
+from nightygo.i18n import LANGUAGES, retranslate_widget_tree, translate
 from nightygo.library import GameLibrary
+from nightygo.materials import STONE_MATERIALS
+from nightygo.model import BLACK, WHITE
 from nightygo.model_center import (
     ModelCenterDialog,
     apply_config_argument,
@@ -26,9 +22,12 @@ from nightygo.model_center import (
     ensure_gtp_config,
     prepare_gtp_engine,
 )
-from nightygo.i18n import LANGUAGES, retranslate_widget_tree, translate
+from nightygo.sgf_session import SgfGameSession
+from nightygo.ui.analysis_graph import AnalysisGraph
+from nightygo.ui.board_widget import BoardWidget
+from nightygo.ui.dock_title_bar import DockTitleBar
+from nightygo.ui.game_tree_view import GameTreeView
 from nightygo.ui.theme import apply_application_theme
-
 
 logger = logging.getLogger(__name__)
 
@@ -984,7 +983,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if not self._reviewing or self._review_index >= len(self._review_positions):
             self._finish_game_review()
             return
-        board, to_play, move_number, _node = self._review_positions[self._review_index]
+        board, _to_play, move_number, _node = self._review_positions[self._review_index]
         try:
             komi = float((self._controller.root.values("KM") or ["6.5"])[0])
         except ValueError:
@@ -1058,9 +1057,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _jump_to_review_move(self, item: QtWidgets.QListWidgetItem | int) -> None:
         move_number = item if isinstance(item, int) else item.data(QtCore.Qt.ItemDataRole.UserRole)
-        if isinstance(move_number, int):
-            if 0 <= move_number < len(self._review_positions):
-                self._controller.navigate_to(self._review_positions[move_number][3])
+        if isinstance(move_number, int) and 0 <= move_number < len(self._review_positions):
+            self._controller.navigate_to(self._review_positions[move_number][3])
 
     def _apply_layout_preset(self, preset: str) -> None:
         """Show panels suited to playing, reviewing, or studying."""
@@ -1076,6 +1074,9 @@ class MainWindow(QtWidgets.QMainWindow):
         if item is None:
             return
         vertex = str(item.data(QtCore.Qt.ItemDataRole.UserRole))
+        if vertex.casefold() == "pass":
+            self._controller.pass_turn()
+            return
         columns = "ABCDEFGHJKLMNOPQRSTUVWXYZ"
         if len(vertex) < 2 or vertex[0] not in columns:
             return

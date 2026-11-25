@@ -34,6 +34,24 @@ class GameControllerTests(unittest.TestCase):
         self.assertEqual(reopened.moveCount, 1)
         self.assertEqual(reopened.game.board[3][3], 1)
 
+    def test_saving_twice_persists_the_second_edit(self) -> None:
+        controller = GameController()
+        self.assertTrue(controller.play_at(3, 3))
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "game.sgf"
+            self.assertTrue(controller.save_sgf(path))
+            controller.set_current_comment("saved on the second write")
+            self.assertTrue(controller.save_sgf())
+            saved = parse_sgf(path.read_text(encoding="utf-8"))
+        self.assertEqual(saved.games[0].children[0].values("C"), ["saved on the second write"])
+        self.assertFalse(controller.isDirty)
+
+    def test_invalid_game_info_does_not_partially_mutate_root(self) -> None:
+        controller = GameController()
+        controller.set_game_info({"PB": "Alpha", "INVALID": "value"})
+        self.assertEqual(controller.root.values("PB"), [])
+        self.assertIn("Unsupported game-info property", controller.last_error)
+
     def test_edits_game_info_markup_and_variations(self) -> None:
         controller = GameController()
         collection = parse_sgf("(;SZ[9];B[dd](;W[cc])(;W[ee]))")

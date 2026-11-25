@@ -23,6 +23,16 @@ class GameLibraryTests(unittest.TestCase):
             self.assertEqual(library.search("opening-study"), [str(game_path.resolve())])
             self.assertEqual(library.tags(game_path), ["tournament", "opening-study"])
 
+    def test_ignores_malformed_saved_tags_and_recent_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            settings = QtCore.QSettings(str(Path(directory) / "settings.ini"), QtCore.QSettings.Format.IniFormat)
+            settings.setValue("library/tags", '{"/tmp/game.sgf": 42, "/tmp/other.sgf": ["ok", 3]}')
+            settings.setValue("library/recent", 42)
+            library = GameLibrary(settings)
+            self.assertEqual(library.tags("/tmp/game.sgf"), [])
+            self.assertEqual(library.tags("/tmp/other.sgf"), ["ok"])
+            self.assertEqual(library.recent_paths, [])
+
 
 if __name__ == "__main__":
     unittest.main()

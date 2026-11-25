@@ -17,6 +17,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def __init__(self) -> None:
         super().__init__()
+        self._settings = QtCore.QSettings("NightyGo", "NightyGo")
         self._collection = SgfCollection()
         self._session = SgfGameSession.new_game()
         self._collection.games.append(self._session.root)
@@ -39,6 +40,13 @@ class MainWindow(QtWidgets.QMainWindow):
         pass_button = QtWidgets.QPushButton("Pass")
         pass_button.clicked.connect(self._pass_turn)
         self._capture_label = QtWidgets.QLabel()
+        self._sound_selector = QtWidgets.QComboBox()
+        self._sound_selector.addItems(StonePlacementSound.available_sounds())
+        saved_sound = self._settings.value("placement_sound", "NightyGo original")
+        if saved_sound in StonePlacementSound.available_sounds():
+            self._sound_selector.setCurrentText(saved_sound)
+        self._sound_selector.currentTextChanged.connect(self._select_sound)
+        self._stone_sound.set_sound(self._sound_selector.currentText())
 
         self._game_tree = GameTreeView(self)
         self._game_tree.node_selected.connect(self._tree_node_selected)
@@ -58,6 +66,8 @@ class MainWindow(QtWidgets.QMainWindow):
         controls.addWidget(self._variations)
         controls.addStretch(1)
         controls.addWidget(self._capture_label)
+        controls.addWidget(QtWidgets.QLabel("Placement sound"))
+        controls.addWidget(self._sound_selector)
         controls.addWidget(self._undo_button)
         controls.addWidget(pass_button)
         controls_widget = QtWidgets.QWidget(self)
@@ -203,6 +213,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _show_error(self, title: str, error: Exception) -> None:
         QtWidgets.QMessageBox.critical(self, title, str(error))
+
+    def _select_sound(self, name: str) -> None:
+        self._stone_sound.set_sound(name)
+        self._settings.setValue("placement_sound", name)
 
     def _refresh_navigation(self, *_args) -> None:
         self._next_button.setEnabled(self._session.can_advance)

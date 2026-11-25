@@ -1,4 +1,21 @@
 # English Document
+## Development setup
+
+This project uses uv and PySide6. From the repository root, run:
+
+```bash
+uv sync --locked
+uv run python ChessSimpleFix.py
+```
+
+## 開發與啟動
+
+本專案使用 uv 管理 PySide6 環境。在專案目錄執行：
+
+```bash
+uv sync --locked
+uv run python ChessSimpleFix.py
+```
 ## NightyGo
 A Go program for recording your game.
 

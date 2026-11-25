@@ -93,5 +93,51 @@ class GoGameTests(unittest.TestCase):
             game.play(4, 4)
 
 
+    def test_undo_restores_move_turn_and_last_move(self) -> None:
+        game = GoGame(size=9)
+        game.play(4, 4)
+
+        undone = game.undo()
+
+        self.assertEqual(undone.point, (4, 4))
+        self.assertEqual(game.board[4][4], EMPTY)
+        self.assertEqual(game.to_play, BLACK)
+        self.assertIsNone(game.last_move)
+        self.assertFalse(game.can_undo)
+
+    def test_undo_restores_captured_stones_and_capture_count(self) -> None:
+        game = GoGame(size=9)
+        game.play(0, 1)  # B
+        game.play(1, 1)  # W
+        game.play(1, 0)  # B
+        game.play(8, 8)  # W
+        game.play(2, 1)  # B
+        game.play(7, 8)  # W
+        game.play(1, 2)  # B captures
+
+        game.undo()
+
+        self.assertEqual(game.board[1][1], WHITE)
+        self.assertEqual(game.captures[BLACK], 0)
+        self.assertEqual(game.to_play, BLACK)
+
+    def test_undo_restores_pass_and_finished_state(self) -> None:
+        game = GoGame(size=9)
+        game.pass_turn()
+        game.pass_turn()
+        self.assertTrue(game.is_finished)
+
+        game.undo()
+
+        self.assertFalse(game.is_finished)
+        self.assertEqual(game.to_play, WHITE)
+        self.assertEqual(len(game.moves), 1)
+
+    def test_undo_without_moves_is_rejected(self) -> None:
+        game = GoGame(size=9)
+        with self.assertRaisesRegex(IllegalMove, "no moves"):
+            game.undo()
+
+
 if __name__ == "__main__":
     unittest.main()

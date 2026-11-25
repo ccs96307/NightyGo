@@ -23,6 +23,17 @@ class Move:
     captured: tuple[Point, ...] = ()
 
 
+@dataclass(frozen=True)
+class _Snapshot:
+    board: Board
+    to_play: int
+    black_captures: int
+    white_captures: int
+    last_move: Move | None
+    consecutive_passes: int
+    is_finished: bool
+
+
 class GoGame:
     """A Go position with captures, suicide checks, simple ko, and passes."""
 
@@ -38,11 +49,17 @@ class GoGame:
         self.is_finished = False
         self._consecutive_passes = 0
         self._position_history = [self._board]
+        self._undo_stack: list[_Snapshot] = []
 
     @property
     def board(self) -> Board:
         """Return the current immutable board snapshot, indexed as [row][column]."""
         return self._board
+
+    @property
+    def can_undo(self) -> bool:
+        """Whether at least one move can be undone."""
+        return bool(self._undo_stack)
 
     def play(self, x: int, y: int) -> Move:
         """Play at (x, y), capture surrounded groups, and advance the turn."""
@@ -80,6 +97,7 @@ class GoGame:
             raise IllegalMove("The move violates the simple ko rule")
 
         move = Move(color, (x, y), tuple(sorted(captured)))
+        self._undo_stack.append(self._snapshot())
         self._board = new_board
         self.to_play = opponent
         self.captures[color] += len(captured)
@@ -94,6 +112,7 @@ class GoGame:
         if self.is_finished:
             raise IllegalMove("The game has already ended")
         move = Move(self.to_play, None)
+        self._undo_stack.append(self._snapshot())
         self.moves.append(move)
         self.last_move = move
         self.to_play = self._opponent(self.to_play)
@@ -101,6 +120,33 @@ class GoGame:
         self.is_finished = self._consecutive_passes >= 2
         self._position_history.append(self._board)
         return move
+
+    def undo(self) -> Move:
+        """Undo the most recent move and restore the complete prior state."""
+        if not self._undo_stack:
+            raise IllegalMove("There are no moves to undo")
+        undone = self.moves.pop()
+        snapshot = self._undo_stack.pop()
+        self._board = snapshot.board
+        self.to_play = snapshot.to_play
+        self.captures[BLACK] = snapshot.black_captures
+        self.captures[WHITE] = snapshot.white_captures
+        self.last_move = snapshot.last_move
+        self._consecutive_passes = snapshot.consecutive_passes
+        self.is_finished = snapshot.is_finished
+        self._position_history.pop()
+        return undone
+
+    def _snapshot(self) -> _Snapshot:
+        return _Snapshot(
+            board=self._board,
+            to_play=self.to_play,
+            black_captures=self.captures[BLACK],
+            white_captures=self.captures[WHITE],
+            last_move=self.last_move,
+            consecutive_passes=self._consecutive_passes,
+            is_finished=self.is_finished,
+        )
 
     @staticmethod
     def _opponent(color: int) -> int:

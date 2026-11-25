@@ -53,6 +53,10 @@ class MainWindow(QtWidgets.QMainWindow):
         saved_sound = self._settings.value(
             "placement_sound", StonePlacementSound.available_sounds()[0]
         )
+        if saved_sound not in StonePlacementSound.available_sounds():
+            logger.info("Replacing unavailable saved placement sound %r", saved_sound)
+            saved_sound = StonePlacementSound.available_sounds()[0]
+            self._settings.setValue("placement_sound", saved_sound)
         self._stone_sound.set_sound(saved_sound)
 
         self._game_tree = GameTreeView(self)
@@ -235,7 +239,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _open_settings(self) -> None:
         dialog = QtWidgets.QDialog(self)
-        dialog.setAttribute(QtCore.Qt.WidgetAttribute.WA_DeleteOnClose)
         dialog.setWindowTitle("NightyGo Preferences")
         font_size = QtWidgets.QSpinBox(dialog)
         font_size.setRange(10, 30)

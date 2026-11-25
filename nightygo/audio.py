@@ -10,17 +10,17 @@ class StonePlacementSound:
     """Preloads several placement sounds and plays the selected effect."""
 
     SOUND_FILES = {
-        "NightyGo original": "stone_placed.wav",
-        "Piece Place · wood": "piece_place.wav",
-        "Soft Click": "soft_click.wav",
-        "Menu Select": "menu_select.wav",
-        "Mouse Click": "mouse_click.wav",
+        "Go stone · wooden board 1": "go_stone_01.wav",
+        "Go stone · wooden board 2": "go_stone_02.wav",
+        "Go stone · wooden board 3": "go_stone_03.wav",
+        "Go stone · thin board 1": "go_stone_04.wav",
+        "Go stone · thin board 2": "go_stone_05.wav",
     }
 
     def __init__(self, parent=None):
         self._effects = {}
         self._pending_play = set()
-        self._selected_sound = "NightyGo original"
+        self._selected_sound = next(iter(self.SOUND_FILES))
         assets = Path(__file__).parent / "assets"
         for name, filename in self.SOUND_FILES.items():
             effect = QSoundEffect(parent)
@@ -45,14 +45,15 @@ class StonePlacementSound:
     def selected_sound(self):
         return self._selected_sound
 
-    def play(self):
+    def play(self, name=None):
         """Play the selected sound, queueing one play while it loads."""
-        effect = self._effects[self._selected_sound]
+        sound_name = name or self._selected_sound
+        effect = self._effects[sound_name]
         status = effect.status()
         if status == QSoundEffect.Status.Ready:
             effect.play()
         elif status == QSoundEffect.Status.Loading:
-            self._pending_play.add(self._selected_sound)
+            self._pending_play.add(sound_name)
 
     def _on_status_changed(self, name):
         effect = self._effects[name]

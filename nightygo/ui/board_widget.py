@@ -40,8 +40,8 @@ class BoardWidget(QtWidgets.QWidget):
             self.update()
 
     def showEvent(self, event: QtGui.QShowEvent) -> None:
-        self._sync_theme_animation()
         super().showEvent(event)
+        QtCore.QTimer.singleShot(0, self._sync_theme_animation)
 
     def hideEvent(self, event: QtGui.QHideEvent) -> None:
         self._theme_animation_timer.stop()
@@ -168,8 +168,27 @@ class BoardWidget(QtWidgets.QWidget):
                     continue
                 center = QtCore.QPointF(left + x * step, top + y * step)
                 target = QtCore.QRectF(center.x() - diameter / 2, center.y() - diameter / 2, diameter, diameter)
+                shadow_center = QtCore.QPointF(
+                    center.x() + diameter * 0.08,
+                    center.y() + diameter * 0.15,
+                )
+                shadow = QtGui.QRadialGradient(
+                    shadow_center,
+                    diameter * 0.56,
+                )
+                shadow.setColorAt(0, QtGui.QColor(0, 0, 0, 125))
+                shadow.setColorAt(0.55, QtGui.QColor(0, 0, 0, 70))
+                shadow.setColorAt(1, QtGui.QColor(0, 0, 0, 0))
+                painter.setPen(QtCore.Qt.PenStyle.NoPen)
+                painter.setBrush(shadow)
+                painter.drawEllipse(
+                    shadow_center,
+                    diameter * 0.56,
+                    diameter * 0.45,
+                )
                 pixmap = stone_pixmap(color, self._stone_material)
                 painter.drawPixmap(target, pixmap, QtCore.QRectF(pixmap.rect()))
+                self._draw_sphere_lighting(painter, target)
 
         move = self._game.last_move
         if move is not None and move.point is not None:
@@ -189,6 +208,60 @@ class BoardWidget(QtWidgets.QWidget):
                 painter.drawPixmap(target, preview, QtCore.QRectF(preview.rect()))
         painter.end()
 
+    @staticmethod
+    def _draw_sphere_lighting(painter: QtGui.QPainter, target: QtCore.QRectF) -> None:
+        """Add directional highlights and edge shading at board display size."""
+        diameter = target.width()
+        center = target.center()
+        painter.save()
+        clip = QtGui.QPainterPath()
+        clip.addEllipse(target)
+        painter.setClipPath(clip)
+
+        light = QtGui.QRadialGradient(
+            QtCore.QPointF(center.x() - diameter * 0.2, center.y() - diameter * 0.24),
+            diameter * 0.68,
+        )
+        light.setColorAt(0, QtGui.QColor(255, 255, 255, 82))
+        light.setColorAt(0.38, QtGui.QColor(255, 255, 255, 25))
+        light.setColorAt(1, QtGui.QColor(255, 255, 255, 0))
+        painter.setPen(QtCore.Qt.PenStyle.NoPen)
+        painter.setBrush(light)
+        painter.drawEllipse(target)
+
+        shade = QtGui.QRadialGradient(
+            QtCore.QPointF(center.x() + diameter * 0.34, center.y() + diameter * 0.35),
+            diameter * 0.56,
+        )
+        shade.setColorAt(0, QtGui.QColor(0, 0, 0, 98))
+        shade.setColorAt(0.52, QtGui.QColor(0, 0, 0, 30))
+        shade.setColorAt(1, QtGui.QColor(0, 0, 0, 0))
+        painter.setBrush(shade)
+        painter.drawEllipse(target)
+
+        specular = QtGui.QRadialGradient(
+            QtCore.QPointF(center.x() - diameter * 0.24, center.y() - diameter * 0.28),
+            diameter * 0.18,
+        )
+        specular.setColorAt(0, QtGui.QColor(255, 255, 255, 190))
+        specular.setColorAt(0.42, QtGui.QColor(255, 255, 255, 95))
+        specular.setColorAt(1, QtGui.QColor(255, 255, 255, 0))
+        painter.setBrush(specular)
+        painter.drawEllipse(
+            QtCore.QRectF(
+                center.x() - diameter * 0.4,
+                center.y() - diameter * 0.42,
+                diameter * 0.35,
+                diameter * 0.25,
+            )
+        )
+
+        rim = target.adjusted(diameter * 0.11, diameter * 0.11, -diameter * 0.11, -diameter * 0.11)
+        painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
+        painter.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255, 125), max(0.7, diameter * 0.025)))
+        painter.drawArc(rim, 38 * 16, 105 * 16)
+        painter.restore()
+
     def _draw_animated_sky(self, painter: QtGui.QPainter, surface: QtCore.QRectF) -> None:
         """Draw inexpensive animated nebula light and softly twinkling stars."""
         painter.save()
@@ -196,37 +269,99 @@ class BoardWidget(QtWidgets.QWidget):
         phase = self._animation_phase
         side = surface.width()
         glow_colors = (
-            (QtGui.QColor(93, 71, 210, 55), QtGui.QColor(42, 155, 208, 40))
+            (QtGui.QColor(108, 77, 255, 112), QtGui.QColor(24, 191, 235, 86))
             if self._board_material == "starfield"
-            else (QtGui.QColor(62, 127, 174, 45), QtGui.QColor(149, 91, 177, 38))
+            else (QtGui.QColor(43, 177, 223, 102), QtGui.QColor(184, 94, 218, 78))
         )
         for index, color in enumerate(glow_colors):
-            angle = phase * (0.45 if index == 0 else -0.32) + index * 2.5
+            angle = phase * (0.8 if index == 0 else -0.57) + index * 2.5
             center = QtCore.QPointF(
-                surface.left() + side * (0.5 + 0.24 * math.cos(angle)),
-                surface.top() + side * (0.5 + 0.22 * math.sin(angle)),
+                surface.left() + side * (0.5 + 0.3 * math.cos(angle)),
+                surface.top() + side * (0.5 + 0.27 * math.sin(angle)),
             )
-            gradient = QtGui.QRadialGradient(center, side * 0.28)
+            gradient = QtGui.QRadialGradient(center, side * 0.36)
             gradient.setColorAt(0, color)
             edge = QtGui.QColor(color)
             edge.setAlpha(0)
             gradient.setColorAt(1, edge)
             painter.setPen(QtCore.Qt.PenStyle.NoPen)
             painter.setBrush(gradient)
-            painter.drawEllipse(center, side * 0.28, side * 0.28)
+            painter.drawEllipse(center, side * 0.36, side * 0.36)
+
+        # Broad, slowly bending aurora ribbons make the sky's motion visible
+        # while the grid is redrawn on top and stays crisp.
+        ribbon_colors = (
+            (QtGui.QColor(67, 232, 225), QtGui.QColor(175, 89, 255))
+            if self._board_material == "starfield"
+            else (QtGui.QColor(100, 212, 244), QtGui.QColor(201, 123, 235))
+        )
+        painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
+        for index, color in enumerate(ribbon_colors):
+            angle = phase * (0.7 if index == 0 else -0.52) + index * 2.1
+            base_y = 0.38 + index * 0.23 + 0.13 * math.sin(angle)
+            path = QtGui.QPainterPath(
+                QtCore.QPointF(surface.left() - side * 0.12, surface.top() + side * base_y)
+            )
+            path.cubicTo(
+                surface.left() + side * 0.25,
+                surface.top() + side * (base_y - 0.2 * math.cos(angle)),
+                surface.left() + side * 0.68,
+                surface.top() + side * (base_y + 0.18 * math.sin(angle + 1.2)),
+                surface.left() + side * 1.12,
+                surface.top() + side * (base_y - 0.14 * math.cos(angle + 0.8)),
+            )
+            painter.setPen(
+                QtGui.QPen(
+                    QtGui.QColor(color.red(), color.green(), color.blue(), 9),
+                    side * 0.105,
+                    QtCore.Qt.PenStyle.SolidLine,
+                    QtCore.Qt.PenCapStyle.RoundCap,
+                )
+            )
+            painter.drawPath(path)
+            painter.setPen(
+                QtGui.QPen(
+                    QtGui.QColor(color.red(), color.green(), color.blue(), 24),
+                    side * 0.043,
+                    QtCore.Qt.PenStyle.SolidLine,
+                    QtCore.Qt.PenCapStyle.RoundCap,
+                )
+            )
+            painter.drawPath(path)
+            painter.setPen(
+                QtGui.QPen(
+                    QtGui.QColor(218, 250, 255, 65),
+                    max(1.0, side * 0.0045),
+                    QtCore.Qt.PenStyle.SolidLine,
+                    QtCore.Qt.PenCapStyle.RoundCap,
+                )
+            )
+            painter.drawPath(path)
+
+        # A bright, short-lived meteor makes the animation immediately apparent.
+        progress = (phase / (2 * math.pi) * 4) % 1.0
+        if progress < 0.22:
+            x = surface.left() + side * (0.08 + progress * 3.5)
+            y = surface.top() + side * (0.2 + progress * 1.2)
+            meteor = QtCore.QPointF(x, y)
+            tail = QtCore.QPointF(x - side * 0.11, y - side * 0.055)
+            painter.setPen(QtGui.QPen(QtGui.QColor(160, 203, 255, 75), max(2.0, side * 0.009)))
+            painter.drawLine(tail, meteor)
+            painter.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255, 235), max(1.5, side * 0.004)))
+            painter.drawPoint(meteor)
 
         for index in range(42):
-            x = (index * 0.61803398875 + phase * 0.004) % 1.0
+            x = (index * 0.61803398875 + phase * 0.012) % 1.0
             y = (index * 0.75487766625 + 0.17) % 1.0
-            twinkle = (1 + math.sin(phase * 1.7 + index * 2.13)) / 2
-            alpha = int(30 + twinkle * 150)
+            twinkle = (1 + math.sin(phase * 3.2 + index * 2.13)) / 2
+            alpha = int(25 + twinkle * 220)
             point = QtCore.QPointF(
                 surface.left() + x * side,
                 surface.top() + y * side,
             )
             painter.setPen(QtCore.Qt.PenStyle.NoPen)
             painter.setBrush(QtGui.QColor(230, 239, 255, alpha))
-            radius = 0.55 + twinkle * 0.7
+            radius = 0.7 + twinkle * 1.2
             painter.drawEllipse(point, radius, radius)
         painter.restore()
 

@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 import copy
 import sys
-from Board import Ui_MainWindow
+from board_ui import Ui_MainWindow
 from PySide6 import QtGui, QtCore, QtWidgets, QtMultimedia
 from PySide6.QtWidgets import QApplication, QMainWindow
-from gameManager import *
+from game_manager import *
 from nightygo.audio import StonePlacementSound
 from nightygo.preview import stone_preview
 

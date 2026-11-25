@@ -10,7 +10,7 @@
 
 ```bash
 uv sync --locked
-uv run python ChessSimpleFix.py
+uv run python main.py
 ```
 
 ## 原始原型

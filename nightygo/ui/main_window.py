@@ -18,6 +18,7 @@ from nightygo.ui.game_tree_view import GameTreeView
 from nightygo.ui.analysis_graph import AnalysisGraph
 from nightygo.sgf_session import SgfGameSession
 from nightygo.library import GameLibrary
+from nightygo.model_center import ModelCenterDialog, apply_model_argument
 
 
 logger = logging.getLogger(__name__)
@@ -196,6 +197,8 @@ class MainWindow(QtWidgets.QMainWindow):
         settings_menu = self.menuBar().addMenu("Settings")
         preferences_action = settings_menu.addAction("Preferences…")
         preferences_action.triggered.connect(self._open_settings)
+        model_center_action = settings_menu.addAction("AI Model Center…")
+        model_center_action.triggered.connect(self._open_model_center)
 
         controls = QtWidgets.QHBoxLayout()
         controls.addWidget(self._previous_button)
@@ -581,12 +584,12 @@ class MainWindow(QtWidgets.QMainWindow):
         if not program:
             return
         try:
-            arguments = tuple(
-                shlex.split(self._settings.value("engine_arguments", "gtp"))
-            )
+            arguments = list(shlex.split(self._settings.value("engine_arguments", "gtp")))
         except ValueError as error:
             self.statusBar().showMessage(f"Invalid engine arguments: {error}", 6000)
             return
+        selected_model = str(self._settings.value("engine_model", ""))
+        arguments = apply_model_argument(arguments, selected_model)
         self._analysis_requested = True
         self._analysis_status.setText("Starting KataGo…")
         self._engine.start(EngineConfig(str(program), arguments))
@@ -933,6 +936,19 @@ class MainWindow(QtWidgets.QMainWindow):
         self._set_font_size(size)
         self._apply_theme(theme)
         self._qml_workspace.rootContext().setContextProperty("uiTheme", theme)
+
+    def _open_model_center(self) -> None:
+        dialog = ModelCenterDialog(self._settings, self)
+        dialog.modelSelected.connect(self._model_selected)
+        dialog.exec()
+
+    def _model_selected(self, path: str) -> None:
+        if self._engine.is_running:
+            self._analysis_requested = False
+            self._engine.stop()
+        self._analysis_status.setText(
+            f"Model selected: {Path(path).name}. Start analysis to load it into KataGo."
+        )
 
     def _select_engine_program(self, field: QtWidgets.QLineEdit) -> None:
         path, _ = QtWidgets.QFileDialog.getOpenFileName(

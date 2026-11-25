@@ -17,6 +17,7 @@ LANGUAGES = {
 # Japanese, and Korean. Technical model names remain as published upstream.
 _ROWS = (
     ("Language", "Language", "語言", "语言", "言語", "언어"),
+    ("Go · Study Studio", "GO  ·  STUDY STUDIO", "圍棋 · 棋譜工作室", "围棋 · 棋谱工作室", "碁 · 棋譜スタジオ", "바둑 · 기보 스튜디오"),
     ("File", "File", "檔案", "文件", "ファイル", "파일"),
     ("Edit", "Edit", "編輯", "编辑", "編集", "편집"),
     ("View", "View", "檢視", "视图", "表示", "보기"),
@@ -27,6 +28,8 @@ _ROWS = (
     ("AI Analysis", "AI Analysis", "AI 分析", "AI 分析", "AI解析", "AI 분석"),
     ("Comments", "Comments", "註解", "注释", "コメント", "주석"),
     ("Game Library", "Game Library", "棋譜庫", "棋谱库", "棋譜ライブラリ", "기보 라이브러리"),
+    ("No saved games yet", "No saved games yet", "目前沒有已儲存的棋譜", "目前没有已保存的棋谱", "保存済みの棋譜はありません", "저장된 기보가 없습니다"),
+    ("No games match this search", "No games match this search", "沒有符合搜尋條件的棋譜", "没有符合搜索条件的棋谱", "検索条件に一致する棋譜はありません", "검색 결과가 없습니다"),
     ("Controls", "Controls", "操作", "操作", "操作", "컨트롤"),
     ("New Game", "New Game", "新對局", "新对局", "新しい対局", "새 대국"),
     ("Open SGF…", "Open SGF…", "開啟 SGF…", "打开 SGF…", "SGFを開く…", "SGF 열기…"),
@@ -107,6 +110,7 @@ _ROWS = (
     ("Black", "Black", "黑方", "黑方", "黒番", "흑번"),
     ("White", "White", "白方", "白方", "白番", "백번"),
     ("Variation {number}", "Variation {number}", "變化 {number}", "变化 {number}", "変化 {number}", "변화 {number}"),
+    ("Main line", "Main line", "主線", "主线", "本譜", "본선"),
     ("Select the end point", "Select the end point", "選擇終點", "选择终点", "終点を選択", "끝점을 선택하세요"),
     ("Click {target} on the board to add markup", "Click {target} on the board to add markup", "在棋盤上點選{target}以新增標記", "在棋盘上点击{target}以添加标记", "盤面で{target}をクリックしてマークを追加", "바둑판에서 {target}을(를) 클릭해 표시를 추가하세요"),
     ("one intersection", "one intersection", "一個交叉點", "一个交叉点", "1つの交点", "교차점 하나"),

@@ -252,7 +252,16 @@ class ModelCenterDialog(QtWidgets.QDialog):
         super().__init__(parent)
         self._language = str(settings.value("language", "en"))
         self.setWindowTitle(self._t("NightyGo · AI Model Center"))
-        self.setMinimumSize(850, 610)
+        self.setObjectName("modelCenterDialog")
+        screen = self.screen()
+        available = screen.availableGeometry() if screen else QtCore.QRect(0, 0, 1280, 800)
+        minimum_width = min(820, max(700, available.width() - 48))
+        minimum_height = min(600, max(520, available.height() - 48))
+        self.setMinimumSize(minimum_width, minimum_height)
+        self.resize(
+            min(980, max(minimum_width, available.width() - 48)),
+            min(760, max(minimum_height, available.height() - 64)),
+        )
         self._settings = settings
         self._profile = HardwareProfile.detect()
         self._manager = QtNetwork.QNetworkAccessManager(self)
@@ -270,7 +279,10 @@ class ModelCenterDialog(QtWidgets.QDialog):
         )) / "models"
         self._download_dir = Path(str(settings.value("model-center/download-dir", default_download_dir)))
 
+        hero = QtWidgets.QLabel(self._t("AI Model Center"), self)
+        hero.setObjectName("dialogHero")
         self._hardware_label = QtWidgets.QLabel(self)
+        self._hardware_label.setObjectName("hardwareSummary")
         self._hardware_label.setWordWrap(True)
         refresh_hardware = QtWidgets.QPushButton(self._t("Refresh"), self)
         refresh_hardware.clicked.connect(self._refresh_hardware)
@@ -283,14 +295,24 @@ class ModelCenterDialog(QtWidgets.QDialog):
         self._search.textChanged.connect(self._populate_catalog)
         self._models = QtWidgets.QTreeWidget(self)
         self._models.setHeaderLabels(tuple(self._t(label) for label in ("Model", "Elo rating", "Upload date", "Memory advice")))
+        model_header = self._models.header()
+        model_header.setSectionResizeMode(QtWidgets.QHeaderView.ResizeMode.Interactive)
+        model_header.setStretchLastSection(True)
+        self._models.setColumnWidth(0, 360)
+        self._models.setColumnWidth(1, 120)
+        self._models.setColumnWidth(2, 145)
+        self._models.setMinimumHeight(180)
         self._models.setRootIsDecorated(False)
         self._models.setAlternatingRowColors(True)
         self._models.currentItemChanged.connect(self._selection_changed)
 
         self._details = QtWidgets.QLabel(self._t("Loading the official KataGo model catalogue…"), self)
+        self._details.setObjectName("modelDetails")
         self._details.setWordWrap(True)
         self._details.setMinimumHeight(74)
         self._folder_label = QtWidgets.QLabel(str(self._download_dir), self)
+        self._folder_label.setWordWrap(True)
+        self._folder_label.setMinimumWidth(0)
         self._folder_label.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.TextSelectableByMouse)
         folder_button = QtWidgets.QPushButton(self._t("Choose folder…"), self)
         folder_button.clicked.connect(self._choose_download_folder)
@@ -303,8 +325,10 @@ class ModelCenterDialog(QtWidgets.QDialog):
         self._progress.setRange(0, 100)
         self._progress.setValue(0)
         self._status = QtWidgets.QLabel(self._t("The model files are provided by katagotraining.org. This page does not download or install the KataGo executable."), self)
+        self._status.setObjectName("modelStatus")
         self._status.setWordWrap(True)
         self._download_button = QtWidgets.QPushButton(self._t("Download and set as current model"), self)
+        self._download_button.setProperty("variant", "primary")
         self._download_button.clicked.connect(self._download_or_use_selected)
         self._download_only_button = QtWidgets.QPushButton(self._t("Download only"), self)
         self._download_only_button.clicked.connect(lambda: self._begin_download(use_when_done=False))
@@ -315,19 +339,27 @@ class ModelCenterDialog(QtWidgets.QDialog):
         actions.addWidget(self._download_button)
         actions.addWidget(self._download_only_button)
         actions.addWidget(self._cancel_button)
+        self._responsive_layouts = (hardware_row, folder_row, actions)
 
         license_link = QtWidgets.QLabel(
             f'{self._t("Network models and licenses:")} <a href="{LICENSE_URL}">KataGo Neural Network License</a>'
             f' · <a href="{CATALOG_URL}">{self._t("Official model catalogue")}</a>', self
         )
+        license_link.setObjectName("modelLinks")
+        license_link.setWordWrap(True)
         license_link.setOpenExternalLinks(True)
         note = QtWidgets.QLabel(
             self._t("Memory guidance is an estimate based on currently available RAM / NVIDIA VRAM and network architecture. KataGo search cache also uses memory; actual needs vary with backend, batch size and cache settings."),
             self,
         )
+        note.setObjectName("modelFootnote")
         note.setWordWrap(True)
 
-        layout = QtWidgets.QVBoxLayout(self)
+        content = QtWidgets.QWidget(self)
+        layout = QtWidgets.QVBoxLayout(content)
+        layout.setContentsMargins(18, 14, 18, 16)
+        layout.setSpacing(11)
+        layout.addWidget(hero)
         layout.addLayout(hardware_row)
         layout.addWidget(self._search)
         layout.addWidget(self._models, 1)
@@ -338,9 +370,34 @@ class ModelCenterDialog(QtWidgets.QDialog):
         layout.addLayout(actions)
         layout.addWidget(license_link)
         layout.addWidget(note)
+        scroll = QtWidgets.QScrollArea(self)
+        scroll.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(content)
+        root_layout = QtWidgets.QVBoxLayout(self)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.addWidget(scroll)
         self._refresh_hardware()
         self._load_cached_catalog()
         self._fetch_catalog()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        if not hasattr(self, "_responsive_layouts"):
+            return
+        font_size = QtWidgets.QApplication.font().pointSize()
+        compact = self.width() < 900 or font_size >= 18
+        direction = (
+            QtWidgets.QBoxLayout.Direction.TopToBottom
+            if compact
+            else QtWidgets.QBoxLayout.Direction.LeftToRight
+        )
+        for layout in self._responsive_layouts:
+            layout.setDirection(direction)
+        available_width = max(620, self.width() - (74 if compact else 56))
+        self._models.setColumnWidth(0, int(available_width * (0.43 if compact else 0.39)))
+        self._models.setColumnWidth(1, int(available_width * 0.16))
+        self._models.setColumnWidth(2, int(available_width * 0.19))
 
     def _t(self, source: str, **values) -> str:
         return translate(source, self._language, **values)

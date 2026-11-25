@@ -20,6 +20,7 @@ from nightygo.sgf_session import SgfGameSession
 from nightygo.library import GameLibrary
 from nightygo.model_center import ModelCenterDialog, apply_model_argument
 from nightygo.i18n import LANGUAGES, retranslate_widget_tree, translate
+from nightygo.ui.theme import apply_application_theme
 
 
 logger = logging.getLogger(__name__)
@@ -57,6 +58,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.game = self._controller.game
         self._stone_sound = StonePlacementSound(self)
         self._board = BoardWidget(self)
+        self._board.set_ui_theme(self._ui_theme)
         self._board.set_board_material(self._settings.value("board_material", "Classic wood"))
         self._board.set_stone_material(self._settings.value("stone_material", "Traditional"))
         self._board.set_animations_enabled(
@@ -72,11 +74,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self._previous_button = QtWidgets.QPushButton("Previous")
         self._previous_button.clicked.connect(self._previous)
         self._next_button = QtWidgets.QPushButton("Next")
+        self._next_button.setProperty("variant", "primary")
         self._next_button.clicked.connect(self._next)
         self._variations = QtWidgets.QComboBox()
         self._variations.setMinimumWidth(120)
         self._variations.currentIndexChanged.connect(self._refresh_navigation)
         pass_button = QtWidgets.QPushButton("Pass")
+        pass_button.setProperty("variant", "secondary")
         pass_button.clicked.connect(self._pass_turn)
         self._capture_label = QtWidgets.QLabel()
         saved_sound = self._settings.value(
@@ -178,11 +182,17 @@ class MainWindow(QtWidgets.QMainWindow):
         self._library_search.textChanged.connect(self._refresh_library)
         self._library_list = QtWidgets.QListWidget(self)
         self._library_list.itemDoubleClicked.connect(self._open_library_item)
+        self._library_empty = QtWidgets.QLabel(self._t("No saved games yet"), self)
+        self._library_empty.setObjectName("emptyState")
+        self._library_empty.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        self._library_stack = QtWidgets.QStackedWidget(self)
+        self._library_stack.addWidget(self._library_empty)
+        self._library_stack.addWidget(self._library_list)
         tag_button = QtWidgets.QPushButton("Edit tags…", self)
         tag_button.clicked.connect(self._edit_library_tags)
         library_layout = QtWidgets.QVBoxLayout()
         library_layout.addWidget(self._library_search)
-        library_layout.addWidget(self._library_list, 1)
+        library_layout.addWidget(self._library_stack, 1)
         library_layout.addWidget(tag_button)
         library_widget = QtWidgets.QWidget(self)
         library_widget.setLayout(library_layout)
@@ -200,9 +210,30 @@ class MainWindow(QtWidgets.QMainWindow):
         redo_action.triggered.connect(self._redo)
         self.addAction(redo_action)
         self._create_file_menu()
-        language_toolbar = self.addToolBar("Language")
-        language_toolbar.setMovable(False)
+        self._create_edit_menu()
+        header_toolbar = self.addToolBar("NightyGo")
+        header_toolbar.setObjectName("mainHeaderToolbar")
+        header_toolbar.setMovable(False)
+        self._brand_label = QtWidgets.QLabel("NIGHTYGO", self)
+        self._brand_label.setObjectName("brandMark")
+        self._brand_caption = QtWidgets.QLabel(self._t("Go · Study Studio"), self)
+        self._brand_caption.setObjectName("brandCaption")
+        header_toolbar.addWidget(self._brand_label)
+        header_toolbar.addWidget(self._brand_caption)
+        header_toolbar.addSeparator()
+        header_spacer = QtWidgets.QWidget(self)
+        header_spacer.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Expanding,
+            QtWidgets.QSizePolicy.Policy.Preferred,
+        )
+        header_toolbar.addWidget(header_spacer)
+        self._toolbar_status = QtWidgets.QLabel(self)
+        self._toolbar_status.setObjectName("toolbarStatus")
+        header_toolbar.addWidget(self._toolbar_status)
+        header_toolbar.addSeparator()
         self._language_button = QtWidgets.QToolButton(self)
+        self._language_button.setObjectName("languageButton")
+        self._language_button.setProperty("variant", "quiet")
         self._language_button.setPopupMode(QtWidgets.QToolButton.ToolButtonPopupMode.InstantPopup)
         self._language_menu = QtWidgets.QMenu(self._language_button)
         self._language_actions: dict[str, QtGui.QAction] = {}
@@ -217,13 +248,7 @@ class MainWindow(QtWidgets.QMainWindow):
             language_group.addAction(action)
             self._language_actions[code] = action
         self._language_button.setMenu(self._language_menu)
-        language_toolbar.addWidget(self._language_button)
-        settings_menu = self.menuBar().addMenu("Settings")
-        preferences_action = settings_menu.addAction("Preferences…")
-        preferences_action.triggered.connect(self._open_settings)
-        model_center_action = settings_menu.addAction("AI Model Center…")
-        model_center_action.triggered.connect(self._open_model_center)
-
+        header_toolbar.addWidget(self._language_button)
         controls = QtWidgets.QHBoxLayout()
         controls.addWidget(self._previous_button)
         controls.addWidget(self._next_button)
@@ -234,7 +259,10 @@ class MainWindow(QtWidgets.QMainWindow):
         controls.addWidget(self._redo_button)
         controls.addWidget(pass_button)
         controls_widget = QtWidgets.QWidget(self)
+        controls_widget.setObjectName("controlsSurface")
         controls_widget.setLayout(controls)
+        controls.setContentsMargins(14, 8, 14, 8)
+        controls.setSpacing(8)
         controls_widget.setMinimumHeight(72)
         controls_widget.setSizePolicy(
             QtWidgets.QSizePolicy.Policy.Expanding,
@@ -251,6 +279,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._qml_workspace.rootContext().setContextProperty("gameController", self._controller)
         self._qml_workspace.rootContext().setContextProperty("uiTheme", self._ui_theme)
         self._qml_workspace.rootContext().setContextProperty("uiLanguage", self._language)
+        self._qml_workspace.rootContext().setContextProperty("uiFontSize", self._font_size)
         self._qml_workspace.setResizeMode(QQuickWidget.ResizeMode.SizeRootObjectToView)
         self._qml_workspace.setSource(QtCore.QUrl.fromLocalFile(
             str(Path(__file__).resolve().parents[1] / "qml" / "BoardWorkspace.qml")
@@ -280,6 +309,11 @@ class MainWindow(QtWidgets.QMainWindow):
         view_menu.addAction(self._comments_dock.toggleViewAction())
         view_menu.addAction(self._library_dock.toggleViewAction())
         view_menu.addAction(self._controls_dock.toggleViewAction())
+        settings_menu = self.menuBar().addMenu("Settings")
+        preferences_action = settings_menu.addAction("Preferences…")
+        preferences_action.triggered.connect(self._open_settings)
+        model_center_action = settings_menu.addAction("AI Model Center…")
+        model_center_action.triggered.connect(self._open_model_center)
         self.addDockWidget(QtCore.Qt.DockWidgetArea.RightDockWidgetArea, self._comments_dock)
         self.tabifyDockWidget(self._tree_dock, self._comments_dock)
         self._comments_dock.hide()
@@ -294,7 +328,6 @@ class MainWindow(QtWidgets.QMainWindow):
             QtCore.Qt.Orientation.Vertical,
         )
         self._set_font_size(self._font_size)
-        self._create_edit_menu()
         self._board.markupRequested.connect(self._apply_markup)
         self._recovery_path = Path(QtCore.QStandardPaths.writableLocation(
             QtCore.QStandardPaths.StandardLocation.AppDataLocation
@@ -325,12 +358,20 @@ class MainWindow(QtWidgets.QMainWindow):
         for code, action in self._language_actions.items():
             action.setChecked(code == self._language)
         self._language_button.setText(self._t("Language"))
+        self._language_button.setToolTip(self._t("Language"))
+        self._brand_caption.setText(self._t("Go · Study Studio"))
+        if self._library_list.count() == 0:
+            self._library_empty.setText(
+                self._t("No games match this search" if self._library_search.text().strip() else "No saved games yet")
+            )
         for dock in (self._tree_dock, self._analysis_dock, self._comments_dock, self._library_dock, self._controls_dock):
             title_bar = dock.titleBarWidget()
             if isinstance(title_bar, DockTitleBar):
                 title_bar.set_language(self._language)
         self._game_tree.set_language(self._language)
+        self._game_tree.set_theme(self._ui_theme)
         self._analysis_graph.set_language(self._language)
+        self._analysis_graph.set_theme(self._ui_theme)
         self._qml_workspace.rootContext().setContextProperty("uiLanguage", self._language)
         self.setWindowTitle("NightyGo" + (" *" if self._controller.isDirty else ""))
         self._capture_label.setText(
@@ -338,17 +379,12 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         if self.game.is_finished:
             self.statusBar().showMessage(self._t("Game ended after two passes"))
+            self._toolbar_status.setText(self._t("Game ended after two passes"))
         else:
             color = self._t("Black" if self.game.to_play == BLACK else "White")
             self.statusBar().showMessage(self._t("{color} to play", color=color))
-        variation_index = self._variations.currentIndex()
-        self._variations.blockSignals(True)
-        self._variations.clear()
-        for index, _child in enumerate(self._controller.current_node.children, start=1):
-            self._variations.addItem(self._t("Variation {number}", number=index))
-        if self._variations.count():
-            self._variations.setCurrentIndex(min(max(0, variation_index), self._variations.count() - 1))
-        self._variations.blockSignals(False)
+            self._toolbar_status.setText(self._t("{color} to play", color=color))
+        self._populate_variations(self._variations.currentIndex())
         if self._analysis_data:
             for candidate in tuple(self._analysis_data.values()):
                 self._analysis_updated(candidate)
@@ -559,6 +595,12 @@ class MainWindow(QtWidgets.QMainWindow):
             item = QtWidgets.QListWidgetItem(name + ("  ·  " + ", ".join(tags) if tags else ""))
             item.setData(QtCore.Qt.ItemDataRole.UserRole, path)
             self._library_list.addItem(item)
+        has_results = self._library_list.count() > 0
+        if not has_results:
+            self._library_empty.setText(
+                self._t("No games match this search" if self._library_search.text().strip() else "No saved games yet")
+            )
+        self._library_stack.setCurrentWidget(self._library_list if has_results else self._library_empty)
 
     def _open_library_item(self, item: QtWidgets.QListWidgetItem) -> None:
         if not self._confirm_discard_changes():
@@ -1069,6 +1111,12 @@ class MainWindow(QtWidgets.QMainWindow):
     def _set_font_size(self, size: int) -> None:
         self._font_size = size
         font = QtWidgets.QApplication.font()
+        installed_families = set(QtGui.QFontDatabase.families())
+        preferred_family = next(
+            (family for family in ("Inter", "Noto Sans", "Segoe UI", "Helvetica Neue", "Arial") if family in installed_families),
+            font.family(),
+        )
+        font.setFamily(preferred_family)
         font.setPointSize(size)
         app = QtWidgets.QApplication.instance()
         if app is not None:
@@ -1076,55 +1124,45 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setFont(font)
         for widget in self.findChildren(QtWidgets.QWidget):
             widget.setFont(font)
+        analysis_graph = getattr(self, "_analysis_graph", None)
+        if analysis_graph is not None:
+            analysis_graph.set_font_size(size)
+        qml_workspace = getattr(self, "_qml_workspace", None)
+        if qml_workspace is not None:
+            qml_workspace.rootContext().setContextProperty("uiFontSize", size)
         game_tree = getattr(self, "_game_tree", None)
         if game_tree is not None:
             game_tree.set_font_size(size)
 
     def _apply_theme(self, theme: str) -> None:
-        """Apply a high-contrast application palette and keyboard focus style."""
-        light = theme == "Warm light"
-        if light:
-            background, panel, text, muted = "#f3f0e9", "#fffdf8", "#292d34", "#68717d"
-            border, accent, hover = "#ded8ca", "#087e76", "#e8f2ee"
-        else:
-            background, panel, text, muted = "#111722", "#1b2433", "#e7edf6", "#9aa8bc"
-            border, accent, hover = "#303c4e", "#47d8c2", "#273548"
-        app = QtWidgets.QApplication.instance()
-        if app is None:
-            return
-        app.setStyle("Fusion")
-        palette = app.palette()
-        palette.setColor(QtGui.QPalette.ColorRole.Window, QtGui.QColor(background))
-        palette.setColor(QtGui.QPalette.ColorRole.WindowText, QtGui.QColor(text))
-        palette.setColor(QtGui.QPalette.ColorRole.Base, QtGui.QColor(panel))
-        palette.setColor(QtGui.QPalette.ColorRole.AlternateBase, QtGui.QColor(background))
-        palette.setColor(QtGui.QPalette.ColorRole.Text, QtGui.QColor(text))
-        palette.setColor(QtGui.QPalette.ColorRole.Button, QtGui.QColor(panel))
-        palette.setColor(QtGui.QPalette.ColorRole.ButtonText, QtGui.QColor(text))
-        palette.setColor(QtGui.QPalette.ColorRole.Highlight, QtGui.QColor(accent))
-        palette.setColor(QtGui.QPalette.ColorRole.HighlightedText, QtGui.QColor("#101820"))
-        app.setPalette(palette)
-        app.setStyleSheet(f"""
-            QMainWindow, QDialog {{ background: {background}; color: {text}; }}
-            QMenuBar, QMenu {{ background: {panel}; color: {text}; border: 1px solid {border}; }}
-            QMenu::item:selected, QMenuBar::item:selected {{ background: {hover}; }}
-            QDockWidget {{ color: {text}; }}
-            QDockWidget::title {{ background: {panel}; padding: 9px 12px; border-bottom: 1px solid {border}; }}
-            QPushButton, QToolButton {{ background: {panel}; color: {text}; border: 1px solid {border}; border-radius: 8px; min-height: 34px; padding: 3px 12px; }}
-            QPushButton:hover, QToolButton:hover {{ background: {hover}; border-color: {accent}; }}
-            QPushButton:pressed {{ background: {accent}; color: #101820; }}
-            QPushButton:disabled {{ color: {muted}; }}
-            QLineEdit, QPlainTextEdit, QListWidget, QTreeView, QComboBox, QSpinBox {{ background: {panel}; color: {text}; border: 1px solid {border}; border-radius: 6px; padding: 5px; selection-background-color: {accent}; }}
-            QComboBox QAbstractItemView {{ background: {panel}; color: {text}; selection-background-color: {accent}; }}
-            QCheckBox {{ spacing: 8px; }}
-            QWidget:focus {{ outline: 2px solid {accent}; outline-offset: 1px; }}
-            QStatusBar {{ color: {muted}; }}
-            QScrollBar:vertical {{ background: {background}; width: 12px; margin: 0; }}
-            QScrollBar::handle:vertical {{ background: {border}; border-radius: 5px; min-height: 28px; }}
-        """)
+        """Apply the shared NightyGo component theme."""
+        self._ui_theme = theme
+        apply_application_theme(theme, getattr(self, "_font_size", 14))
+        if hasattr(self, "_board"):
+            self._board.set_ui_theme(theme)
+        if hasattr(self, "_game_tree"):
+            self._game_tree.set_theme(theme)
+        if hasattr(self, "_analysis_graph"):
+            self._analysis_graph.set_theme(theme)
+        if hasattr(self, "_qml_workspace"):
+            self._qml_workspace.rootContext().setContextProperty("uiTheme", theme)
 
     def _refresh_navigation(self, *_args) -> None:
         self._next_button.setEnabled(self._controller.session.can_advance)
+
+    def _populate_variations(self, selected_index: int = 0) -> None:
+        children = self._controller.current_node.children
+        self._variations.blockSignals(True)
+        self._variations.clear()
+        if not children:
+            self._variations.addItem(self._t("Main line"))
+        else:
+            self._variations.addItem(self._t("Main line"))
+            for number in range(2, len(children) + 1):
+                self._variations.addItem(self._t("Variation {number}", number=number))
+        self._variations.setCurrentIndex(min(max(0, selected_index), self._variations.count() - 1))
+        self._variations.setEnabled(len(children) > 1)
+        self._variations.blockSignals(False)
 
     def _tree_node_selected(self, node) -> None:
         if node is self._controller.current_node:
@@ -1160,18 +1198,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self._undo_button.setEnabled(self._controller.session.can_undo)
         self._redo_button.setEnabled(self._controller.session.can_advance)
         self._previous_button.setEnabled(self._controller.session.can_undo)
-        self._variations.blockSignals(True)
-        self._variations.clear()
-        for index, _child in enumerate(self._controller.current_node.children, start=1):
-            self._variations.addItem(self._t("Variation {number}", number=index))
-        self._variations.setCurrentIndex(0)
-        self._variations.blockSignals(False)
+        self._populate_variations()
         self._next_button.setEnabled(self._controller.session.can_advance)
         if self.game.is_finished:
             self.statusBar().showMessage(self._t("Game ended after two passes"))
+            self._toolbar_status.setText(self._t("Game ended after two passes"))
         else:
             color = self._t("Black" if self.game.to_play == BLACK else "White")
             self.statusBar().showMessage(self._t("{color} to play", color=color))
+            self._toolbar_status.setText(self._t("{color} to play", color=color))
         self._capture_label.setText(
             self._t("Captured  Black: {black}   White: {white}", black=self.game.captures[BLACK], white=self.game.captures[WHITE])
         )

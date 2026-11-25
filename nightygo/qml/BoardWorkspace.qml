@@ -2,18 +2,43 @@ import QtQuick
 
 Rectangle {
     id: root
-    color: uiTheme === "Warm light" ? "#f3f0e9" : "#111722"
+    color: uiTheme === "Warm light" ? "#e9eef3" : "#0b1018"
+    gradient: Gradient {
+        GradientStop { position: 0.0; color: uiTheme === "Warm light" ? "#f4f7fa" : "#111c2a" }
+        GradientStop { position: 1.0; color: uiTheme === "Warm light" ? "#e6ebf1" : "#090e15" }
+    }
     property var controller: gameController
     property int boardSize: controller ? controller.boardSize : 19
     property var rows: controller ? controller.boardRows : []
     property int hoverX: -1
     property int hoverY: -1
 
+    Rectangle {
+        anchors.centerIn: parent
+        width: Math.min(parent.width, parent.height) * 0.94 + 16
+        height: width
+        z: 1
+        radius: 18
+        color: uiTheme === "Warm light" ? "#d3dce5" : "#202c3b"
+        border.color: uiTheme === "Warm light" ? "#bdc8d3" : "#34475e"
+        border.width: 1
+    }
+    Rectangle {
+        anchors.centerIn: parent
+        anchors.verticalCenterOffset: 7
+        width: Math.min(parent.width, parent.height) * 0.94 + 8
+        height: width
+        radius: 17
+        color: "#000000"
+        opacity: uiTheme === "Warm light" ? 0.06 : 0.22
+        z: 0
+    }
     Canvas {
         id: board
         anchors.centerIn: parent
         width: Math.min(parent.width, parent.height) * 0.94
         height: width
+        z: 2
         renderTarget: Canvas.Image
         onPaint: {
             const ctx = getContext("2d")
@@ -92,7 +117,7 @@ Rectangle {
             return labels[uiLanguage] || labels.en
         }
         color: uiTheme === "Warm light" ? "#292d34" : "#d7e3f4"
-        font.pixelSize: 13
+        font.pixelSize: uiFontSize + 2
         font.letterSpacing: 2.2
         font.weight: Font.DemiBold
     }
@@ -104,6 +129,6 @@ Rectangle {
             return controller.moveCount + (suffix[uiLanguage] || suffix.en)
         }
         color: uiTheme === "Warm light" ? "#68717d" : "#91a1b7"
-        font.pixelSize: 13
+        font.pixelSize: uiFontSize + 2
     }
 }

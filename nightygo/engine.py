@@ -35,6 +35,15 @@ class AnalysisMove:
 
 
 @dataclass(frozen=True)
+class AnalysisRoot:
+    """Current-position aggregate metrics reported by KataGo."""
+
+    visits: int = 0
+    winrate: float | None = None
+    score_lead: float | None = None
+
+
+@dataclass(frozen=True)
 class _Command:
     command_id: int
     text: str
@@ -43,6 +52,12 @@ class _Command:
 
 _INFO_MOVE = re.compile(
     r"(?:^|\s)info\s+move\s+(\S+)(.*?)(?=\s+info\s+(?:move|rootInfo|ownership|ownershipStdev|movesOwnership|movesOwnershipStdev)\b|$)"
+)
+_ROOT_INFO = re.compile(
+    r"(?:^|\s)info\s+rootInfo(.*?)(?=\s+ownership(?:Stdev)?\b|$)"
+)
+_OWNERSHIP = re.compile(
+    r"(?:^|\s)ownership\s+((?:[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?\s*)+)(?=\s+info\s|\s+ownershipStdev\b|$)"
 )
 
 
@@ -96,6 +111,38 @@ def _parse_info_move(vertex: str, payload: str) -> AnalysisMove | None:
     )
 
 
+def parse_katago_root_info(line: str) -> AnalysisRoot | None:
+    """Parse aggregate root metrics from a KataGo analysis line."""
+    match = _ROOT_INFO.search(line.strip())
+    if match is None:
+        return None
+    parts = match.group(1).split()
+    values: dict[str, str] = {}
+    for index in range(0, len(parts) - 1, 2):
+        values[parts[index]] = parts[index + 1]
+    try:
+        visits = int(values.get("visits", "0"))
+        winrate = float(values["winrate"]) if "winrate" in values else None
+        score_value = values.get("scoreLead") or values.get("scoreMean")
+        score = float(score_value) if score_value is not None else None
+    except ValueError:
+        return None
+    if winrate is not None and winrate > 1.0 and winrate <= 10000:
+        winrate /= 10000.0
+    return AnalysisRoot(visits, winrate, score)
+
+
+def parse_katago_ownership(line: str) -> tuple[float, ...] | None:
+    """Parse the optional row-major ownership values from KataGo."""
+    match = _OWNERSHIP.search(line.strip())
+    if match is None:
+        return None
+    try:
+        return tuple(float(value) for value in match.group(1).split())
+    except ValueError:
+        return None
+
+
 class GtpEngine(QtCore.QObject):
     """Manage a GTP engine asynchronously without blocking the UI thread."""
 
@@ -103,6 +150,8 @@ class GtpEngine(QtCore.QObject):
     ready = QtCore.Signal(str, str)
     responseReceived = QtCore.Signal(int, str, str)
     analysisUpdated = QtCore.Signal(object)
+    rootInfoUpdated = QtCore.Signal(object)
+    ownershipUpdated = QtCore.Signal(object)
     errorOccurred = QtCore.Signal(str)
     outputReceived = QtCore.Signal(str)
 
@@ -278,7 +327,13 @@ class GtpEngine(QtCore.QObject):
                 analyses = parse_katago_info_lines(line)
                 for analysis in analyses:
                     self.analysisUpdated.emit(analysis)
-                if not analyses:
+                root = parse_katago_root_info(line)
+                if root is not None:
+                    self.rootInfoUpdated.emit(root)
+                ownership = parse_katago_ownership(line)
+                if ownership is not None:
+                    self.ownershipUpdated.emit(ownership)
+                if not analyses and root is None and ownership is None:
                     self.outputReceived.emit(line)
                 continue
             if line.startswith(("=", "?")):

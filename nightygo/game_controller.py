@@ -8,7 +8,7 @@ from pathlib import Path
 from PySide6 import QtCore
 
 from nightygo.model import BLACK, WHITE, GoGame, IllegalMove, Move
-from nightygo.sgf import SgfCollection, SgfError, SgfNode, read_sgf, write_sgf
+from nightygo.sgf import SgfCollection, SgfError, SgfNode, read_sgf, serialize_sgf, write_sgf
 from nightygo.sgf_session import SgfGameSession
 
 
@@ -29,11 +29,11 @@ class GameController(QtCore.QObject):
 
     def __init__(self, parent: QtCore.QObject | None = None) -> None:
         super().__init__(parent)
-        self.collection = SgfCollection()
         self.session = SgfGameSession.new_game()
-        self.collection.games.append(self.session.root)
+        self.collection = SgfCollection([self.session.root])
         self._current_path = ""
         self._last_error = ""
+        self._saved_document = serialize_sgf(self.collection)
 
     @QtCore.Property("QVariantList", notify=stateChanged)
     def boardRows(self) -> list[list[int]]:
@@ -75,6 +75,10 @@ class GameController(QtCore.QObject):
     def currentPath(self) -> str:
         return self._current_path
 
+    @QtCore.Property(bool, notify=stateChanged)
+    def isDirty(self) -> bool:
+        return serialize_sgf(self.collection) != self._saved_document
+
     @QtCore.Property(str, notify=stateChanged)
     def currentPlayerName(self) -> str:
         color = "PB" if self.session.game.to_play == BLACK else "PW"
@@ -111,6 +115,7 @@ class GameController(QtCore.QObject):
         self.session = SgfGameSession.new_game(board_size)
         self.collection = SgfCollection([self.session.root])
         self._current_path = ""
+        self._saved_document = serialize_sgf(self.collection)
         self.filePathChanged.emit("")
         self._publish()
 
@@ -179,6 +184,7 @@ class GameController(QtCore.QObject):
             return False
         self.collection = collection
         self.session = session
+        self._saved_document = serialize_sgf(collection)
         self._current_path = str(path)
         self.filePathChanged.emit(self._current_path)
         self._publish()
@@ -196,10 +202,31 @@ class GameController(QtCore.QObject):
             self._emit_error(f"Could not save SGF: {error}")
             logger.exception("Could not save SGF %s", destination)
             return False
+        self._saved_document = serialize_sgf(self.collection)
         self._current_path = destination
         self.filePathChanged.emit(destination)
         self._publish()
         logger.info("Saved SGF %s", destination)
+        return True
+
+    def save_recovery(self, path: str | Path) -> None:
+        """Write a crash-recovery snapshot without changing the document path."""
+        write_sgf(self.collection, path)
+
+    def load_recovery(self, path: str | Path) -> bool:
+        """Load a recovery copy and keep it marked as unsaved work."""
+        try:
+            collection = read_sgf(path)
+            session = SgfGameSession(collection.games[0], start_at_end=True)
+        except (OSError, SgfError, ValueError) as error:
+            self._emit_error(f"Could not restore recovery file: {error}")
+            return False
+        self.collection = collection
+        self.session = session
+        self._current_path = ""
+        self._saved_document = ""
+        self.filePathChanged.emit("")
+        self._publish()
         return True
 
     @QtCore.Slot(str, str)

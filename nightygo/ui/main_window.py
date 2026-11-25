@@ -5,15 +5,19 @@ import logging
 import shlex
 
 from PySide6 import QtCore, QtGui, QtWidgets
+from PySide6.QtQuickWidgets import QQuickWidget
 
 from nightygo.audio import StonePlacementSound
-from nightygo.engine import AnalysisMove, EngineConfig, GtpEngine
+from nightygo.engine import AnalysisMove, AnalysisRoot, EngineConfig, GtpEngine
 from nightygo.model import BLACK, WHITE
 from nightygo.materials import STONE_MATERIALS
 from nightygo.game_controller import GameController
 from nightygo.ui.board_widget import BoardWidget
 from nightygo.ui.dock_title_bar import DockTitleBar
 from nightygo.ui.game_tree_view import GameTreeView
+from nightygo.ui.analysis_graph import AnalysisGraph
+from nightygo.sgf_session import SgfGameSession
+from nightygo.library import GameLibrary
 
 
 logger = logging.getLogger(__name__)
@@ -25,7 +29,10 @@ class MainWindow(QtWidgets.QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self._settings = QtCore.QSettings("NightyGo", "NightyGo")
+        self._library = GameLibrary(self._settings)
         self._font_size = int(self._settings.value("font_size", 14))
+        self._ui_theme = str(self._settings.value("ui_theme", "Dark"))
+        self._apply_theme(self._ui_theme)
         self._set_font_size(self._font_size)
         self._controller = GameController(self)
         self._controller.stateChanged.connect(self._refresh)
@@ -39,11 +46,17 @@ class MainWindow(QtWidgets.QMainWindow):
             lambda message: self.statusBar().showMessage(message, 7000)
         )
         self._engine.analysisUpdated.connect(self._analysis_updated)
+        self._engine.rootInfoUpdated.connect(self._root_info_updated)
+        self._engine.ownershipUpdated.connect(self._ownership_updated)
+        self._engine.responseReceived.connect(self._engine_response_received)
         self.game = self._controller.game
         self._stone_sound = StonePlacementSound(self)
         self._board = BoardWidget(self)
         self._board.set_board_material(self._settings.value("board_material", "Classic wood"))
         self._board.set_stone_material(self._settings.value("stone_material", "Traditional"))
+        self._board.set_animations_enabled(
+            self._settings.value("animations_enabled", True, type=bool)
+        )
         self._board.set_game(self.game)
         self._board.point_clicked.connect(self._play_at)
 
@@ -87,6 +100,29 @@ class MainWindow(QtWidgets.QMainWindow):
         self._candidate_list.itemDoubleClicked.connect(self._play_selected_candidate)
         self._analysis_data: dict[str, AnalysisMove] = {}
         self._analysis_requested = False
+        self._review_positions: list[tuple[tuple[tuple[int, ...], ...], int, int, object]] = []
+        self._review_results: list[tuple[int, float]] = []
+        self._review_stones_command: int | None = None
+        self._review_waiting_analysis_response = False
+        self._reviewing = False
+        self._review_index = 0
+        self._review_timer = QtCore.QTimer(self)
+        self._review_timer.setSingleShot(True)
+        self._review_timer.setInterval(1200)
+        self._review_timer.timeout.connect(self._stop_review_sample)
+        self._show_ownership = QtWidgets.QCheckBox("Ownership overlay")
+        self._show_ownership.toggled.connect(lambda shown: self._board.set_ownership(
+            self._latest_ownership if shown else (), self.game.size if shown else 0
+        ))
+        self._latest_ownership: tuple[float, ...] = ()
+        self._analysis_graph = AnalysisGraph(self)
+        review_button = QtWidgets.QPushButton("Review full game")
+        review_button.clicked.connect(self._start_game_review)
+        self._review_stop_button = QtWidgets.QPushButton("Stop review")
+        self._review_stop_button.clicked.connect(self._stop_game_review)
+        self._review_stop_button.setEnabled(False)
+        self._review_findings = QtWidgets.QListWidget(self)
+        self._review_findings.itemClicked.connect(self._jump_to_review_move)
         start_analysis_button = QtWidgets.QPushButton("Analyze position")
         start_analysis_button.clicked.connect(self._start_engine_analysis)
         stop_analysis_button = QtWidgets.QPushButton("Stop")
@@ -99,9 +135,16 @@ class MainWindow(QtWidgets.QMainWindow):
         analysis_layout = QtWidgets.QVBoxLayout()
         analysis_layout.addWidget(self._analysis_status)
         analysis_layout.addWidget(self._analysis_summary)
+        analysis_layout.addWidget(self._analysis_graph)
+        analysis_layout.addWidget(self._show_ownership)
         analysis_layout.addWidget(self._candidate_list, 1)
         analysis_layout.addLayout(analysis_buttons)
         analysis_layout.addWidget(play_candidate_button)
+        review_buttons = QtWidgets.QHBoxLayout()
+        review_buttons.addWidget(review_button)
+        review_buttons.addWidget(self._review_stop_button)
+        analysis_layout.addLayout(review_buttons)
+        analysis_layout.addWidget(self._review_findings)
         analysis_widget = QtWidgets.QWidget(self)
         analysis_widget.setLayout(analysis_layout)
         self._analysis_dock = QtWidgets.QDockWidget("AI Analysis", self)
@@ -122,6 +165,24 @@ class MainWindow(QtWidgets.QMainWindow):
         self._comments_dock.setObjectName("commentsDock")
         self._comments_dock.setWidget(comment_widget)
         self._comments_dock.setTitleBarWidget(DockTitleBar(self._comments_dock))
+
+        self._library_search = QtWidgets.QLineEdit(self)
+        self._library_search.setPlaceholderText("Search players, event, result, or tags")
+        self._library_search.textChanged.connect(self._refresh_library)
+        self._library_list = QtWidgets.QListWidget(self)
+        self._library_list.itemDoubleClicked.connect(self._open_library_item)
+        tag_button = QtWidgets.QPushButton("Edit tags…", self)
+        tag_button.clicked.connect(self._edit_library_tags)
+        library_layout = QtWidgets.QVBoxLayout()
+        library_layout.addWidget(self._library_search)
+        library_layout.addWidget(self._library_list, 1)
+        library_layout.addWidget(tag_button)
+        library_widget = QtWidgets.QWidget(self)
+        library_widget.setLayout(library_layout)
+        self._library_dock = QtWidgets.QDockWidget("Game Library", self)
+        self._library_dock.setObjectName("libraryDock")
+        self._library_dock.setWidget(library_widget)
+        self._library_dock.setTitleBarWidget(DockTitleBar(self._library_dock))
 
         undo_action = QtGui.QAction("Undo", self)
         undo_action.setShortcut(QtGui.QKeySequence.StandardKey.Undo)
@@ -157,10 +218,20 @@ class MainWindow(QtWidgets.QMainWindow):
         self._controls_dock.setWidget(controls_widget)
         self._controls_dock.setTitleBarWidget(DockTitleBar(self._controls_dock))
 
-        layout = QtWidgets.QVBoxLayout()
-        layout.addWidget(self._board, 1)
+        self._workspace_stack = QtWidgets.QStackedWidget(self)
+        self._workspace_stack.addWidget(self._board)
+        self._qml_workspace = QQuickWidget(self)
+        self._qml_workspace.rootContext().setContextProperty("gameController", self._controller)
+        self._qml_workspace.rootContext().setContextProperty("uiTheme", self._ui_theme)
+        self._qml_workspace.setResizeMode(QQuickWidget.ResizeMode.SizeRootObjectToView)
+        self._qml_workspace.setSource(QtCore.QUrl.fromLocalFile(
+            str(Path(__file__).resolve().parents[1] / "qml" / "BoardWorkspace.qml")
+        ))
+        self._workspace_stack.addWidget(self._qml_workspace)
         central_widget = QtWidgets.QWidget(self)
-        central_widget.setLayout(layout)
+        central_layout = QtWidgets.QVBoxLayout(central_widget)
+        central_layout.setContentsMargins(0, 0, 0, 0)
+        central_layout.addWidget(self._workspace_stack, 1)
         self.setCentralWidget(central_widget)
         self.addDockWidget(QtCore.Qt.DockWidgetArea.RightDockWidgetArea, self._tree_dock)
         self.addDockWidget(QtCore.Qt.DockWidgetArea.RightDockWidgetArea, self._analysis_dock)
@@ -168,13 +239,25 @@ class MainWindow(QtWidgets.QMainWindow):
         self._analysis_dock.hide()
         self.addDockWidget(QtCore.Qt.DockWidgetArea.BottomDockWidgetArea, self._controls_dock)
         view_menu = self.menuBar().addMenu("View")
+        qml_action = view_menu.addAction("QML workspace preview")
+        qml_action.setCheckable(True)
+        qml_action.toggled.connect(lambda enabled: self._workspace_stack.setCurrentIndex(1 if enabled else 0))
+        if self._qml_workspace.status() == QQuickWidget.Status.Error:
+            errors = "; ".join(error.toString() for error in self._qml_workspace.errors())
+            logger.error("QML workspace failed to load: %s", errors)
+            qml_action.setEnabled(False)
+            self.statusBar().showMessage("QML workspace failed to load; see application log", 8000)
         view_menu.addAction(self._tree_dock.toggleViewAction())
         view_menu.addAction(self._analysis_dock.toggleViewAction())
         view_menu.addAction(self._comments_dock.toggleViewAction())
+        view_menu.addAction(self._library_dock.toggleViewAction())
         view_menu.addAction(self._controls_dock.toggleViewAction())
         self.addDockWidget(QtCore.Qt.DockWidgetArea.RightDockWidgetArea, self._comments_dock)
         self.tabifyDockWidget(self._tree_dock, self._comments_dock)
         self._comments_dock.hide()
+        self.addDockWidget(QtCore.Qt.DockWidgetArea.RightDockWidgetArea, self._library_dock)
+        self.tabifyDockWidget(self._tree_dock, self._library_dock)
+        self._library_dock.hide()
         self.setWindowTitle("NightyGo")
         self.resize(860, 760)
         self.resizeDocks(
@@ -185,6 +268,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self._set_font_size(self._font_size)
         self._create_edit_menu()
         self._board.markupRequested.connect(self._apply_markup)
+        self._recovery_path = Path(QtCore.QStandardPaths.writableLocation(
+            QtCore.QStandardPaths.StandardLocation.AppDataLocation
+        )) / "recovery.sgf"
+        self._recovery_timer = QtCore.QTimer(self)
+        self._recovery_timer.setSingleShot(True)
+        self._recovery_timer.setInterval(1200)
+        self._recovery_timer.timeout.connect(self._write_recovery)
+        self._controller.stateChanged.connect(self._schedule_recovery)
+        self._offer_recovery()
+        self._refresh_library()
         self._refresh()
 
     def _create_edit_menu(self) -> None:
@@ -249,6 +342,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._controller.next(self._variations.currentIndex())
 
     def _new_game(self) -> None:
+        if not self._confirm_discard_changes():
+            return
         sizes = ("9", "13", "19")
         preferred_size = str(self._settings.value("board_size", 19))
         if preferred_size not in sizes:
@@ -268,12 +363,17 @@ class MainWindow(QtWidgets.QMainWindow):
         self._controller.new_game(board_size)
 
     def _open_sgf(self) -> None:
+        if not self._confirm_discard_changes():
+            return
         path, _ = QtWidgets.QFileDialog.getOpenFileName(
             self, "Open SGF", "", "SGF files (*.sgf *.SGF);;All files (*)"
         )
         if not path:
             return
-        if self._controller.load_sgf(path) and len(self._controller.collection.games) > 1:
+        if self._controller.load_sgf(path):
+            self._library.touch(path)
+            self._refresh_library()
+        if self._controller.current_path == path and len(self._controller.collection.games) > 1:
             self.statusBar().showMessage(
                 "Loaded the first game; all game trees are preserved when saving",
                 6000,
@@ -300,7 +400,98 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _write_to(self, path: str) -> None:
         if self._controller.save_sgf(path):
+            self._library.touch(path)
+            self._refresh_library()
+            self._remove_recovery()
             self.statusBar().showMessage(f"Saved {path}", 3000)
+
+    def _confirm_discard_changes(self) -> bool:
+        if not self._controller.isDirty:
+            return True
+        box = QtWidgets.QMessageBox(self)
+        box.setWindowTitle("Unsaved game")
+        box.setText("This game has unsaved changes.")
+        box.setInformativeText("Save the changes before continuing?")
+        save = box.addButton(QtWidgets.QMessageBox.StandardButton.Save)
+        discard = box.addButton(QtWidgets.QMessageBox.StandardButton.Discard)
+        box.addButton(QtWidgets.QMessageBox.StandardButton.Cancel)
+        box.setDefaultButton(save)
+        box.exec()
+        if box.clickedButton() is save:
+            self._save_sgf()
+            return not self._controller.isDirty
+        return box.clickedButton() is discard
+
+    def _offer_recovery(self) -> None:
+        if not self._recovery_path.is_file():
+            return
+        answer = QtWidgets.QMessageBox.question(
+            self,
+            "Recover unsaved game?",
+            "A recent autosaved game was found. Restore it?",
+            QtWidgets.QMessageBox.StandardButton.Restore
+            | QtWidgets.QMessageBox.StandardButton.Discard,
+            QtWidgets.QMessageBox.StandardButton.Restore,
+        )
+        if answer == QtWidgets.QMessageBox.StandardButton.Restore:
+            self._controller.load_recovery(self._recovery_path)
+            self.statusBar().showMessage("Recovered autosaved game; save it to keep the changes", 6000)
+        else:
+            self._remove_recovery()
+
+    def _schedule_recovery(self) -> None:
+        if self._controller.isDirty:
+            self._recovery_timer.start()
+        else:
+            self._recovery_timer.stop()
+            self._remove_recovery()
+
+    def _write_recovery(self) -> None:
+        if not self._controller.isDirty:
+            return
+        try:
+            self._recovery_path.parent.mkdir(parents=True, exist_ok=True)
+            self._controller.save_recovery(self._recovery_path)
+        except OSError:
+            logger.exception("Could not write game recovery snapshot")
+
+    def _remove_recovery(self) -> None:
+        try:
+            self._recovery_path.unlink(missing_ok=True)
+        except OSError:
+            logger.warning("Could not remove recovery snapshot %s", self._recovery_path)
+
+    def _refresh_library(self, *_args) -> None:
+        if not hasattr(self, "_library_list"):
+            return
+        self._library_list.clear()
+        for path in self._library.search(self._library_search.text()):
+            name = Path(path).name
+            tags = self._library.tags(path)
+            item = QtWidgets.QListWidgetItem(name + ("  ·  " + ", ".join(tags) if tags else ""))
+            item.setData(QtCore.Qt.ItemDataRole.UserRole, path)
+            self._library_list.addItem(item)
+
+    def _open_library_item(self, item: QtWidgets.QListWidgetItem) -> None:
+        if not self._confirm_discard_changes():
+            return
+        path = str(item.data(QtCore.Qt.ItemDataRole.UserRole))
+        if self._controller.load_sgf(path):
+            self._library.touch(path)
+            self._refresh_library()
+
+    def _edit_library_tags(self) -> None:
+        item = self._library_list.currentItem()
+        path = str(item.data(QtCore.Qt.ItemDataRole.UserRole)) if item else self._controller.current_path
+        if not path:
+            self.statusBar().showMessage("Save this game before adding it to the library", 4000)
+            return
+        tags, accepted = QtWidgets.QInputDialog.getText(
+            self, "Game tags", "Comma separated tags", text=", ".join(self._library.tags(path))
+        )
+        if accepted:
+            self._library.set_tags(path, tags.split(","))
+            self._refresh_library()
 
     def _save_current_comment(self) -> None:
         self._controller.set_current_comment(self._comment_editor.toPlainText())
@@ -480,6 +671,132 @@ class MainWindow(QtWidgets.QMainWindow):
             self.game.size,
         )
 
+    def _root_info_updated(self, root: AnalysisRoot) -> None:
+        if root.winrate is None:
+            return
+        perspective = (
+            self._review_positions[self._review_index][1]
+            if self._reviewing and self._review_index < len(self._review_positions)
+            else self.game.to_play
+        )
+        black_winrate = root.winrate if perspective == BLACK else 1.0 - root.winrate
+        score = "—" if root.score_lead is None else f"{root.score_lead:+.1f} pts"
+        self._analysis_summary.setText(
+            f"Position · Black {black_winrate * 100:.1f}% · {score} · {root.visits:,} visits"
+        )
+        if self._reviewing and self._review_index < len(self._review_positions):
+            move_number = self._review_index
+            if not self._review_results or self._review_results[-1][0] != move_number:
+                self._review_results.append((move_number, black_winrate))
+            else:
+                self._review_results[-1] = (move_number, black_winrate)
+            self._analysis_graph.set_points(self._review_results)
+
+    def _ownership_updated(self, values: tuple[float, ...]) -> None:
+        self._latest_ownership = values
+        if self._show_ownership.isChecked():
+            self._board.set_ownership(values, self.game.size)
+
+    def _start_game_review(self) -> None:
+        if self._engine.status != GtpEngine.READY:
+            self._analysis_status.setText("Start KataGo before reviewing the game")
+            if not self._engine.is_running:
+                self._start_engine_analysis()
+            return
+        session = SgfGameSession(self._controller.root)
+        positions = []
+        while True:
+            positions.append((tuple(tuple(row) for row in session.game.board), session.game.to_play, len(session.path) - 1, session.current_node))
+            if not session.can_advance:
+                break
+            session.next(0)
+        self._review_positions = positions
+        self._review_results = []
+        self._review_index = 0
+        self._reviewing = True
+        self._review_findings.clear()
+        self._analysis_graph.set_points([])
+        self._review_stop_button.setEnabled(True)
+        self._analysis_status.setText(f"Reviewing {len(positions)} positions…")
+        self._review_next_position()
+
+    def _review_next_position(self) -> None:
+        if not self._reviewing or self._review_index >= len(self._review_positions):
+            self._finish_game_review()
+            return
+        board, to_play, move_number, _node = self._review_positions[self._review_index]
+        try:
+            komi = float((self._controller.root.values("KM") or ["6.5"])[0])
+        except ValueError:
+            komi = 6.5
+        self._engine.set_position(self.game.size, komi)
+        black, white = [], []
+        columns = "ABCDEFGHJKLMNOPQRSTUVWXYZ"
+        for y, row in enumerate(board):
+            for x, color in enumerate(row):
+                if color:
+                    vertex = f"{columns[x]}{self.game.size - y}"
+                    (black if color == BLACK else white).append(vertex)
+        self._review_stones_command = self._engine.set_stones(tuple(black), tuple(white))
+        self._review_timer.stop()
+        self._analysis_status.setText(f"Reviewing move {move_number} ({self._review_index + 1}/{len(self._review_positions)})…")
+
+    def _engine_response_received(self, command_id: int, command: str, _body: str) -> None:
+        if self._reviewing and self._review_stones_command is not None and command_id == self._review_stones_command:
+            # The final setup response means the engine has the requested board.
+            self._review_stones_command = None
+            player = "B" if self._review_positions[self._review_index][1] == BLACK else "W"
+            QtCore.QTimer.singleShot(0, lambda: self._begin_review_sample(player))
+        elif self._reviewing and command == "stop":
+            self._review_waiting_analysis_response = False
+            self._review_index += 1
+            QtCore.QTimer.singleShot(0, self._review_next_position)
+        elif self._reviewing and command.startswith("kata-analyze ") and self._review_waiting_analysis_response:
+            self._review_waiting_analysis_response = False
+            self._review_timer.stop()
+            self._review_index += 1
+            QtCore.QTimer.singleShot(0, self._review_next_position)
+
+    def _begin_review_sample(self, player: str) -> None:
+        if self._reviewing and self._engine.status == GtpEngine.READY:
+            self._review_waiting_analysis_response = True
+            self._engine.start_analysis(player, interval_ms=500)
+            self._review_timer.start()
+
+    def _stop_review_sample(self) -> None:
+        if self._reviewing and self._engine.status == GtpEngine.ANALYZING:
+            self._engine.stop_analysis()
+
+    def _stop_game_review(self) -> None:
+        self._reviewing = False
+        self._review_timer.stop()
+        self._review_stop_button.setEnabled(False)
+        if self._engine.status == GtpEngine.ANALYZING:
+            self._engine.stop_analysis()
+        self._analysis_status.setText("Review stopped")
+
+    def _finish_game_review(self) -> None:
+        self._reviewing = False
+        self._review_timer.stop()
+        self._review_stop_button.setEnabled(False)
+        drops = []
+        for previous, current in zip(self._review_results, self._review_results[1:]):
+            mover = self._review_positions[current[0]][1]
+            loss = previous[1] - current[1] if mover == WHITE else current[1] - previous[1]
+            if loss >= 0.08:
+                drops.append((loss, current[0]))
+        for loss, move in sorted(drops, reverse=True)[:12]:
+            mover = "White" if self._review_positions[move][1] == BLACK else "Black"
+            item = QtWidgets.QListWidgetItem(f"Move {move} · {mover}: estimated loss {loss * 100:.1f}%")
+            item.setData(QtCore.Qt.ItemDataRole.UserRole, move)
+            self._review_findings.addItem(item)
+        self._analysis_status.setText(f"Review complete · {len(self._review_results)} positions · {len(drops)} major swings")
+
+    def _jump_to_review_move(self, item: QtWidgets.QListWidgetItem) -> None:
+        move_number = item.data(QtCore.Qt.ItemDataRole.UserRole)
+        if isinstance(move_number, int):
+            self._controller.navigate_to(self._review_positions[move_number][3])
+
     def _play_selected_candidate(self, *_args) -> None:
         item = self._candidate_list.currentItem()
         if item is None:
@@ -497,6 +814,11 @@ class MainWindow(QtWidgets.QMainWindow):
             self._stone_sound.play()
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:
+        if not self._confirm_discard_changes():
+            event.ignore()
+            return
+        self._recovery_timer.stop()
+        self._remove_recovery()
         self._engine.stop()
         super().closeEvent(event)
 
@@ -510,6 +832,11 @@ class MainWindow(QtWidgets.QMainWindow):
         font_size.setRange(10, 30)
         font_size.setSuffix(" pt")
         font_size.setValue(self._font_size)
+        animations_enabled = QtWidgets.QCheckBox(dialog)
+        animations_enabled.setChecked(self._settings.value("animations_enabled", True, type=bool))
+        theme_selector = QtWidgets.QComboBox(dialog)
+        theme_selector.addItems(("Dark", "Warm light"))
+        theme_selector.setCurrentText(self._ui_theme)
 
         sound_selector = QtWidgets.QComboBox(dialog)
         sound_selector.addItems(StonePlacementSound.available_sounds())
@@ -552,6 +879,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         form = QtWidgets.QFormLayout()
         form.addRow("Application font size", font_size)
+        form.addRow("Application theme", theme_selector)
+        form.addRow("Animated board backgrounds", animations_enabled)
         form.addRow("Go stone placement sound", sound_row)
         form.addRow("Board texture", board_selector)
         form.addRow("Stone texture", stone_selector)
@@ -574,12 +903,16 @@ class MainWindow(QtWidgets.QMainWindow):
             return
 
         size = font_size.value()
+        theme = theme_selector.currentText()
+        enable_animations = animations_enabled.isChecked()
         selected_sound = sound_selector.currentText()
         selected_board = board_selector.currentText()
         selected_stones = stone_selector.currentText()
         selected_engine = engine_program.text().strip()
         selected_arguments = engine_arguments.text().strip()
         self._settings.setValue("font_size", size)
+        self._settings.setValue("ui_theme", theme)
+        self._settings.setValue("animations_enabled", enable_animations)
         self._settings.setValue("placement_sound", selected_sound)
         self._settings.setValue("board_material", selected_board)
         self._settings.setValue("stone_material", selected_stones)
@@ -587,6 +920,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._settings.setValue("engine_arguments", selected_arguments)
         self._stone_sound.set_sound(selected_sound)
         self._board.set_board_material(selected_board)
+        self._board.set_animations_enabled(enable_animations)
         self._board.set_stone_material(selected_stones)
         self._game_tree.set_stone_material(selected_stones)
         logger.info(
@@ -597,6 +931,8 @@ class MainWindow(QtWidgets.QMainWindow):
             selected_sound,
         )
         self._set_font_size(size)
+        self._apply_theme(theme)
+        self._qml_workspace.rootContext().setContextProperty("uiTheme", theme)
 
     def _select_engine_program(self, field: QtWidgets.QLineEdit) -> None:
         path, _ = QtWidgets.QFileDialog.getOpenFileName(
@@ -622,6 +958,49 @@ class MainWindow(QtWidgets.QMainWindow):
         if game_tree is not None:
             game_tree.set_font_size(size)
 
+    def _apply_theme(self, theme: str) -> None:
+        """Apply a high-contrast application palette and keyboard focus style."""
+        light = theme == "Warm light"
+        if light:
+            background, panel, text, muted = "#f3f0e9", "#fffdf8", "#292d34", "#68717d"
+            border, accent, hover = "#ded8ca", "#087e76", "#e8f2ee"
+        else:
+            background, panel, text, muted = "#111722", "#1b2433", "#e7edf6", "#9aa8bc"
+            border, accent, hover = "#303c4e", "#47d8c2", "#273548"
+        app = QtWidgets.QApplication.instance()
+        if app is None:
+            return
+        app.setStyle("Fusion")
+        palette = app.palette()
+        palette.setColor(QtGui.QPalette.ColorRole.Window, QtGui.QColor(background))
+        palette.setColor(QtGui.QPalette.ColorRole.WindowText, QtGui.QColor(text))
+        palette.setColor(QtGui.QPalette.ColorRole.Base, QtGui.QColor(panel))
+        palette.setColor(QtGui.QPalette.ColorRole.AlternateBase, QtGui.QColor(background))
+        palette.setColor(QtGui.QPalette.ColorRole.Text, QtGui.QColor(text))
+        palette.setColor(QtGui.QPalette.ColorRole.Button, QtGui.QColor(panel))
+        palette.setColor(QtGui.QPalette.ColorRole.ButtonText, QtGui.QColor(text))
+        palette.setColor(QtGui.QPalette.ColorRole.Highlight, QtGui.QColor(accent))
+        palette.setColor(QtGui.QPalette.ColorRole.HighlightedText, QtGui.QColor("#101820"))
+        app.setPalette(palette)
+        app.setStyleSheet(f"""
+            QMainWindow, QDialog {{ background: {background}; color: {text}; }}
+            QMenuBar, QMenu {{ background: {panel}; color: {text}; border: 1px solid {border}; }}
+            QMenu::item:selected, QMenuBar::item:selected {{ background: {hover}; }}
+            QDockWidget {{ color: {text}; }}
+            QDockWidget::title {{ background: {panel}; padding: 9px 12px; border-bottom: 1px solid {border}; }}
+            QPushButton, QToolButton {{ background: {panel}; color: {text}; border: 1px solid {border}; border-radius: 8px; min-height: 34px; padding: 3px 12px; }}
+            QPushButton:hover, QToolButton:hover {{ background: {hover}; border-color: {accent}; }}
+            QPushButton:pressed {{ background: {accent}; color: #101820; }}
+            QPushButton:disabled {{ color: {muted}; }}
+            QLineEdit, QPlainTextEdit, QListWidget, QTreeView, QComboBox, QSpinBox {{ background: {panel}; color: {text}; border: 1px solid {border}; border-radius: 6px; padding: 5px; selection-background-color: {accent}; }}
+            QComboBox QAbstractItemView {{ background: {panel}; color: {text}; selection-background-color: {accent}; }}
+            QCheckBox {{ spacing: 8px; }}
+            QWidget:focus {{ outline: 2px solid {accent}; outline-offset: 1px; }}
+            QStatusBar {{ color: {muted}; }}
+            QScrollBar:vertical {{ background: {background}; width: 12px; margin: 0; }}
+            QScrollBar::handle:vertical {{ background: {border}; border-radius: 5px; min-height: 28px; }}
+        """)
+
     def _refresh_navigation(self, *_args) -> None:
         self._next_button.setEnabled(self._controller.session.can_advance)
 
@@ -639,6 +1018,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _refresh(self) -> None:
         self.game = self._controller.game
+        self.setWindowTitle("NightyGo" + (" *" if self._controller.isDirty else ""))
         if self._engine.status == GtpEngine.ANALYZING:
             self._analysis_requested = False
             self._engine.stop_analysis()
@@ -646,6 +1026,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._candidate_list.clear()
         self._analysis_summary.setText("Analysis not available for this move")
         self._board.set_analysis_moves([], self.game.size)
+        self._latest_ownership = ()
+        self._board.set_ownership((), 0)
         self._board.set_markup(self._controller.current_node.properties)
         self._board.set_game(self.game)
         self._comment_editor.setPlainText(

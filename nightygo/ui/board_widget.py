@@ -20,11 +20,14 @@ class BoardWidget(QtWidgets.QWidget):
         self._game: GoGame | None = None
         self._hover_point: tuple[int, int] | None = None
         self._analysis_points: tuple[tuple[int, int, int], ...] = ()
+        self._ownership: tuple[float, ...] = ()
+        self._ownership_size = 0
         self._markup_properties: dict[str, list[str]] = {}
         self._markup_mode = ""
         self._board_material = "wood"
         self._stone_material = "classic"
         self._animation_phase = 0.0
+        self._animations_enabled = True
         self._theme_animation_timer = QtCore.QTimer(self)
         self._theme_animation_timer.setInterval(50)
         self._theme_animation_timer.timeout.connect(self._advance_theme_animation)
@@ -43,6 +46,12 @@ class BoardWidget(QtWidgets.QWidget):
             self._sync_theme_animation()
             self.update()
 
+    def set_animations_enabled(self, enabled: bool) -> None:
+        """Enable or stop ambient board animation."""
+        self._animations_enabled = enabled
+        self._sync_theme_animation()
+        self.update()
+
     def showEvent(self, event: QtGui.QShowEvent) -> None:
         super().showEvent(event)
         QtCore.QTimer.singleShot(0, self._sync_theme_animation)
@@ -52,7 +61,7 @@ class BoardWidget(QtWidgets.QWidget):
         super().hideEvent(event)
 
     def _sync_theme_animation(self) -> None:
-        if self.isVisible() and self._board_material != "wood":
+        if self.isVisible() and self._board_material != "wood" and self._animations_enabled:
             self._theme_animation_timer.start()
         else:
             self._theme_animation_timer.stop()
@@ -98,6 +107,12 @@ class BoardWidget(QtWidgets.QWidget):
             if 0 <= x < board_size and 0 <= y < board_size:
                 points.append((x, y, rank))
         self._analysis_points = tuple(points)
+        self.update()
+
+    def set_ownership(self, values: tuple[float, ...] | list[float], board_size: int) -> None:
+        """Display KataGo ownership as a subtle heat map beneath stones."""
+        self._ownership = tuple(values)
+        self._ownership_size = board_size
         self.update()
 
     def set_markup(self, properties: dict[str, list[str]]) -> None:
@@ -186,6 +201,15 @@ class BoardWidget(QtWidgets.QWidget):
             side,
         )
         painter.drawImage(surface, board_texture(self._board_material))
+        if self._ownership_size == self._game.size and len(self._ownership) == self._game.size ** 2:
+            for index, ownership in enumerate(self._ownership):
+                x, y = index % self._game.size, index // self._game.size
+                center = QtCore.QPointF(left + x * step, top + y * step)
+                strength = min(0.42, abs(ownership) * 0.42)
+                color = QtGui.QColor(53, 220, 199, int(strength * 255)) if ownership >= 0 else QtGui.QColor(255, 143, 116, int(strength * 255))
+                painter.setPen(QtCore.Qt.PenStyle.NoPen)
+                painter.setBrush(color)
+                painter.drawEllipse(center, step * 0.27, step * 0.27)
         if self._board_material != "wood":
             self._draw_animated_sky(painter, surface)
         last = left + (self._game.size - 1) * step

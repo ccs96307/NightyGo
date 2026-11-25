@@ -21,10 +21,13 @@ class GameControllerTests(unittest.TestCase):
 
     def test_save_and_reopen_preserves_game_tree(self) -> None:
         controller = GameController()
+        self.assertFalse(controller.isDirty)
         controller.play_at(3, 3)
+        self.assertTrue(controller.isDirty)
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "game.sgf"
             self.assertTrue(controller.save_sgf(path))
+            self.assertFalse(controller.isDirty)
             reopened = GameController()
             self.assertTrue(reopened.load_sgf(path))
 
@@ -51,6 +54,17 @@ class GameControllerTests(unittest.TestCase):
         self.assertIn("KM[7.5]", serialized)
         self.assertIn("TR[ee]", serialized)
         self.assertIn("LB[dd:A]", serialized)
+
+    def test_recovery_round_trip_remains_unsaved(self) -> None:
+        controller = GameController()
+        controller.play_at(3, 3)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "recovery.sgf"
+            controller.save_recovery(path)
+            restored = GameController()
+            self.assertTrue(restored.load_recovery(path))
+        self.assertEqual(restored.moveCount, 1)
+        self.assertTrue(restored.isDirty)
 
 
 if __name__ == "__main__":

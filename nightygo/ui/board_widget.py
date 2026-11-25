@@ -28,6 +28,7 @@ class BoardWidget(QtWidgets.QWidget):
         self._stone_material = "classic"
         self._animation_phase = 0.0
         self._animations_enabled = True
+        self._ui_theme = "Dark"
         self._theme_animation_timer = QtCore.QTimer(self)
         self._theme_animation_timer.setInterval(50)
         self._theme_animation_timer.timeout.connect(self._advance_theme_animation)
@@ -50,6 +51,11 @@ class BoardWidget(QtWidgets.QWidget):
         """Enable or stop ambient board animation."""
         self._animations_enabled = enabled
         self._sync_theme_animation()
+        self.update()
+
+    def set_ui_theme(self, theme: str) -> None:
+        """Set the frame and surrounding surface to match the application."""
+        self._ui_theme = theme
         self.update()
 
     def showEvent(self, event: QtGui.QShowEvent) -> None:
@@ -133,11 +139,13 @@ class BoardWidget(QtWidgets.QWidget):
     def _grid_geometry(self) -> tuple[float, float, float]:
         size = self._game.size if self._game else 19
         side = min(self.width(), self.height())
-        margin = side * 0.075
-        span = max(0.0, side - 2 * margin)
+        frame = max(14.0, min(24.0, side * 0.03))
+        content_side = max(0.0, side - 2 * (frame + 9.0))
+        margin = content_side * 0.075
+        span = max(0.0, content_side - 2 * margin)
         step = span / max(1, size - 1)
-        left = (self.width() - side) / 2 + margin
-        top = (self.height() - side) / 2 + margin
+        left = (self.width() - content_side) / 2 + margin
+        top = (self.height() - content_side) / 2 + margin
         return left, top, step
 
     def _point_at(self, position: QtCore.QPointF | QtCore.QPoint) -> tuple[int, int] | None:
@@ -186,7 +194,8 @@ class BoardWidget(QtWidgets.QWidget):
     def paintEvent(self, event: QtGui.QPaintEvent) -> None:
         painter = QtGui.QPainter(self)
         painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
-        outside_color = "#d7ad68" if self._board_material == "wood" else "#0b1021"
+        dark = self._ui_theme != "Warm light"
+        outside_color = "#0b1018" if dark else "#e7edf2"
         painter.fillRect(self.rect(), QtGui.QColor(outside_color))
         if self._game is None:
             painter.end()
@@ -194,12 +203,28 @@ class BoardWidget(QtWidgets.QWidget):
 
         left, top, step = self._grid_geometry()
         side = min(self.width(), self.height())
-        surface = QtCore.QRectF(
-            (self.width() - side) / 2,
-            (self.height() - side) / 2,
-            side,
-            side,
+        frame = max(14.0, min(24.0, side * 0.03))
+        outer = QtCore.QRectF(
+            (self.width() - side) / 2 + frame,
+            (self.height() - side) / 2 + frame,
+            side - frame * 2,
+            side - frame * 2,
         )
+        shadow_rect = outer.translated(0, 8)
+        painter.setPen(QtCore.Qt.PenStyle.NoPen)
+        painter.setBrush(QtGui.QColor(0, 0, 0, 86 if dark else 42))
+        painter.drawRoundedRect(shadow_rect, 18, 18)
+        bezel = QtGui.QLinearGradient(outer.topLeft(), outer.bottomRight())
+        bezel.setColorAt(0, QtGui.QColor("#344252" if dark else "#d2dbe4"))
+        bezel.setColorAt(1, QtGui.QColor("#1c2734" if dark else "#bac7d3"))
+        painter.setBrush(bezel)
+        painter.setPen(QtGui.QPen(QtGui.QColor("#425267" if dark else "#c4ced8"), 1))
+        painter.drawRoundedRect(outer, 18, 18)
+        surface = outer.adjusted(9, 9, -9, -9)
+        clip = QtGui.QPainterPath()
+        clip.addRoundedRect(surface, 12, 12)
+        painter.save()
+        painter.setClipPath(clip)
         painter.drawImage(surface, board_texture(self._board_material))
         if self._ownership_size == self._game.size and len(self._ownership) == self._game.size ** 2:
             for index, ownership in enumerate(self._ownership):
@@ -274,6 +299,10 @@ class BoardWidget(QtWidgets.QWidget):
                 preview = stone_preview(self._game.to_play, self._stone_material)
                 painter.drawPixmap(target, preview, QtCore.QRectF(preview.rect()))
         self._draw_markup(painter, left, top, step)
+        painter.restore()
+        painter.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255, 36 if dark else 120), 1))
+        painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
+        painter.drawRoundedRect(surface, 12, 12)
         painter.end()
 
     def _draw_markup(

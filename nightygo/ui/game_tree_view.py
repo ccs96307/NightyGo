@@ -22,6 +22,7 @@ class _MoveItem(QtWidgets.QGraphicsObject):
         tooltip: str,
         font_size: int,
         stone_material: str,
+        accent: QtGui.QColor,
     ) -> None:
         super().__init__()
         self.node = node
@@ -30,6 +31,7 @@ class _MoveItem(QtWidgets.QGraphicsObject):
         self.selected = selected
         self.font_size = font_size
         self.stone_material = stone_material
+        self.accent = accent
         self.radius = max(12.0, font_size * 0.9)
         self.setToolTip(tooltip)
         self.setAcceptedMouseButtons(QtCore.Qt.MouseButton.LeftButton)
@@ -49,7 +51,12 @@ class _MoveItem(QtWidgets.QGraphicsObject):
             image_rect = self.boundingRect().adjusted(1, 1, -1, -1)
             painter.drawPixmap(image_rect, image, QtCore.QRectF(image.rect()))
         if self.selected:
-            painter.setPen(QtGui.QPen(QtGui.QColor("#d65332"), 2.5))
+            halo = QtGui.QColor(self.accent)
+            halo.setAlpha(48)
+            painter.setPen(QtCore.Qt.PenStyle.NoPen)
+            painter.setBrush(halo)
+            painter.drawEllipse(self.boundingRect().adjusted(-3, -3, 3, 3))
+            painter.setPen(QtGui.QPen(self.accent, 2.5))
             painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
             painter.drawEllipse(self.boundingRect().adjusted(0, 0, 0, 0))
         if self.move_number and self.color is not None:
@@ -93,6 +100,19 @@ class GameTreeView(QtWidgets.QGraphicsView):
         self._current = None
         self._board_size = 19
         self._language = "en"
+        self._theme = "Dark"
+        self._accent = QtGui.QColor("#69e2cf")
+        self._connector = QtGui.QColor("#506178")
+        self.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
+
+    def set_theme(self, theme: str) -> None:
+        self._theme = theme
+        dark = theme != "Warm light"
+        self._accent = QtGui.QColor("#69e2cf" if dark else "#087e76")
+        self._connector = QtGui.QColor("#506178" if dark else "#aebac7")
+        self.setBackgroundBrush(QtGui.QColor("#0e1621" if dark else "#f3f6f9"))
+        if self._root is not None:
+            self.set_tree(self._root, self._current, self._board_size)
 
     def set_language(self, language: str) -> None:
         self._language = language
@@ -182,7 +202,7 @@ class GameTreeView(QtWidgets.QGraphicsView):
                         child_x,
                         child_y - node_radius,
                     )
-                pen = QtGui.QPen(QtGui.QColor("#8d8375"), 1.8)
+                pen = QtGui.QPen(self._connector, 1.8)
                 self._scene.addPath(path, pen)
 
         for node in _walk_nodes(root):
@@ -212,6 +232,7 @@ class GameTreeView(QtWidgets.QGraphicsView):
                 " · ".join(details),
                 self._font_size,
                 self._stone_material,
+                self._accent,
             )
             item.setPos(*positions[key])
             item.clicked.connect(self.node_selected)

@@ -1,5 +1,7 @@
 """PySide6 board renderer and pointer interaction."""
 
+import math
+
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from nightygo.materials import BOARD_MATERIALS, board_texture
@@ -18,6 +20,10 @@ class BoardWidget(QtWidgets.QWidget):
         self._hover_point: tuple[int, int] | None = None
         self._board_material = "wood"
         self._stone_material = "classic"
+        self._animation_phase = 0.0
+        self._theme_animation_timer = QtCore.QTimer(self)
+        self._theme_animation_timer.setInterval(50)
+        self._theme_animation_timer.timeout.connect(self._advance_theme_animation)
         self.setMinimumSize(440, 440)
         self.setMouseTracking(True)
 
@@ -30,7 +36,33 @@ class BoardWidget(QtWidgets.QWidget):
         """Set the board surface texture and repaint."""
         if material in BOARD_MATERIALS:
             self._board_material = BOARD_MATERIALS[material]
+            self._sync_theme_animation()
             self.update()
+
+    def showEvent(self, event: QtGui.QShowEvent) -> None:
+        self._sync_theme_animation()
+        super().showEvent(event)
+
+    def hideEvent(self, event: QtGui.QHideEvent) -> None:
+        self._theme_animation_timer.stop()
+        super().hideEvent(event)
+
+    def _sync_theme_animation(self) -> None:
+        if self.isVisible() and self._board_material != "wood":
+            self._theme_animation_timer.start()
+        else:
+            self._theme_animation_timer.stop()
+
+    def _advance_theme_animation(self) -> None:
+        self._animation_phase = (self._animation_phase + 0.055) % (2 * math.pi)
+        side = min(self.width(), self.height())
+        surface = QtCore.QRect(
+            int((self.width() - side) / 2),
+            int((self.height() - side) / 2),
+            side,
+            side,
+        )
+        self.update(surface)
 
     def set_stone_material(self, material: str) -> None:
         """Set the material used to render placed and preview stones."""
@@ -112,6 +144,8 @@ class BoardWidget(QtWidgets.QWidget):
             side,
         )
         painter.drawImage(surface, board_texture(self._board_material))
+        if self._board_material != "wood":
+            self._draw_animated_sky(painter, surface)
         last = left + (self._game.size - 1) * step
         bottom = top + (self._game.size - 1) * step
         line_color = {
@@ -155,6 +189,47 @@ class BoardWidget(QtWidgets.QWidget):
                 painter.drawPixmap(target, preview, QtCore.QRectF(preview.rect()))
         painter.end()
 
+    def _draw_animated_sky(self, painter: QtGui.QPainter, surface: QtCore.QRectF) -> None:
+        """Draw inexpensive animated nebula light and softly twinkling stars."""
+        painter.save()
+        painter.setClipRect(surface)
+        phase = self._animation_phase
+        side = surface.width()
+        glow_colors = (
+            (QtGui.QColor(93, 71, 210, 55), QtGui.QColor(42, 155, 208, 40))
+            if self._board_material == "starfield"
+            else (QtGui.QColor(62, 127, 174, 45), QtGui.QColor(149, 91, 177, 38))
+        )
+        for index, color in enumerate(glow_colors):
+            angle = phase * (0.45 if index == 0 else -0.32) + index * 2.5
+            center = QtCore.QPointF(
+                surface.left() + side * (0.5 + 0.24 * math.cos(angle)),
+                surface.top() + side * (0.5 + 0.22 * math.sin(angle)),
+            )
+            gradient = QtGui.QRadialGradient(center, side * 0.28)
+            gradient.setColorAt(0, color)
+            edge = QtGui.QColor(color)
+            edge.setAlpha(0)
+            gradient.setColorAt(1, edge)
+            painter.setPen(QtCore.Qt.PenStyle.NoPen)
+            painter.setBrush(gradient)
+            painter.drawEllipse(center, side * 0.28, side * 0.28)
+
+        for index in range(42):
+            x = (index * 0.61803398875 + phase * 0.004) % 1.0
+            y = (index * 0.75487766625 + 0.17) % 1.0
+            twinkle = (1 + math.sin(phase * 1.7 + index * 2.13)) / 2
+            alpha = int(30 + twinkle * 150)
+            point = QtCore.QPointF(
+                surface.left() + x * side,
+                surface.top() + y * side,
+            )
+            painter.setPen(QtCore.Qt.PenStyle.NoPen)
+            painter.setBrush(QtGui.QColor(230, 239, 255, alpha))
+            radius = 0.55 + twinkle * 0.7
+            painter.drawEllipse(point, radius, radius)
+        painter.restore()
+
     def _draw_star_points(self, painter: QtGui.QPainter, left: float, top: float, step: float) -> None:
         size = self._game.size
         if size == 19:
@@ -165,14 +240,26 @@ class BoardWidget(QtWidgets.QWidget):
             coordinates = (2, 4, 6)
         else:
             coordinates = (size // 2,)
-        painter.setPen(QtCore.Qt.PenStyle.NoPen)
         star_color = {
             "wood": "#392a1b",
-            "starfield": "#ffe5a0",
-            "night_sky": "#d6e4ff",
+            "starfield": "#fff0bd",
+            "night_sky": "#e5efff",
         }[self._board_material]
-        painter.setBrush(QtGui.QColor(star_color))
-        radius = max(1.5, step * 0.065)
+        radius = max(2.2, step * 0.095)
         for x in coordinates:
             for y in coordinates:
-                painter.drawEllipse(QtCore.QPointF(left + x * step, top + y * step), radius, radius)
+                center = QtCore.QPointF(left + x * step, top + y * step)
+                # A subtle halo separates each hoshi from busy cosmic textures.
+                painter.setPen(QtGui.QPen(QtGui.QColor(0, 0, 0, 95), max(1.0, step * 0.06)))
+                painter.setBrush(QtGui.QColor(255, 255, 255, 34))
+                painter.drawEllipse(center, radius * 1.9, radius * 1.9)
+                painter.setPen(QtGui.QPen(QtGui.QColor(0, 0, 0, 165), max(0.8, step * 0.035)))
+                painter.setBrush(QtGui.QColor(star_color))
+                painter.drawEllipse(center, radius, radius)
+                painter.setPen(QtCore.Qt.PenStyle.NoPen)
+                painter.setBrush(QtGui.QColor(255, 255, 255, 115))
+                painter.drawEllipse(
+                    QtCore.QPointF(center.x() - radius * 0.2, center.y() - radius * 0.2),
+                    radius * 0.28,
+                    radius * 0.28,
+                )

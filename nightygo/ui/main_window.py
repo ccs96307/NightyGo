@@ -2,10 +2,12 @@
 
 from pathlib import Path
 import logging
+import shlex
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from nightygo.audio import StonePlacementSound
+from nightygo.engine import AnalysisMove, EngineConfig, GtpEngine
 from nightygo.model import BLACK, WHITE
 from nightygo.materials import STONE_MATERIALS
 from nightygo.game_controller import GameController
@@ -30,6 +32,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self._controller.errorOccurred.connect(
             lambda message: self.statusBar().showMessage(message, 5000)
         )
+        self._engine = GtpEngine(self)
+        self._engine.statusChanged.connect(self._engine_status_changed)
+        self._engine.ready.connect(self._engine_ready)
+        self._engine.errorOccurred.connect(
+            lambda message: self.statusBar().showMessage(message, 7000)
+        )
+        self._engine.analysisUpdated.connect(self._analysis_updated)
         self.game = self._controller.game
         self._stone_sound = StonePlacementSound(self)
         self._board = BoardWidget(self)
@@ -71,6 +80,35 @@ class MainWindow(QtWidgets.QMainWindow):
             self._settings.value("stone_material", "Traditional")
         )
 
+        self._analysis_status = QtWidgets.QLabel("Configure KataGo in Settings → Preferences")
+        self._analysis_summary = QtWidgets.QLabel("No analysis available")
+        self._analysis_summary.setWordWrap(True)
+        self._candidate_list = QtWidgets.QListWidget()
+        self._candidate_list.itemDoubleClicked.connect(self._play_selected_candidate)
+        self._analysis_data: dict[str, AnalysisMove] = {}
+        self._analysis_requested = False
+        start_analysis_button = QtWidgets.QPushButton("Analyze position")
+        start_analysis_button.clicked.connect(self._start_engine_analysis)
+        stop_analysis_button = QtWidgets.QPushButton("Stop")
+        stop_analysis_button.clicked.connect(self._stop_engine_analysis)
+        play_candidate_button = QtWidgets.QPushButton("Play selected move")
+        play_candidate_button.clicked.connect(self._play_selected_candidate)
+        analysis_buttons = QtWidgets.QHBoxLayout()
+        analysis_buttons.addWidget(start_analysis_button)
+        analysis_buttons.addWidget(stop_analysis_button)
+        analysis_layout = QtWidgets.QVBoxLayout()
+        analysis_layout.addWidget(self._analysis_status)
+        analysis_layout.addWidget(self._analysis_summary)
+        analysis_layout.addWidget(self._candidate_list, 1)
+        analysis_layout.addLayout(analysis_buttons)
+        analysis_layout.addWidget(play_candidate_button)
+        analysis_widget = QtWidgets.QWidget(self)
+        analysis_widget.setLayout(analysis_layout)
+        self._analysis_dock = QtWidgets.QDockWidget("AI Analysis", self)
+        self._analysis_dock.setObjectName("analysisDock")
+        self._analysis_dock.setWidget(analysis_widget)
+        self._analysis_dock.setTitleBarWidget(DockTitleBar(self._analysis_dock))
+
         undo_action = QtGui.QAction("Undo", self)
         undo_action.setShortcut(QtGui.QKeySequence.StandardKey.Undo)
         undo_action.triggered.connect(self._undo)
@@ -111,9 +149,13 @@ class MainWindow(QtWidgets.QMainWindow):
         central_widget.setLayout(layout)
         self.setCentralWidget(central_widget)
         self.addDockWidget(QtCore.Qt.DockWidgetArea.RightDockWidgetArea, self._tree_dock)
+        self.addDockWidget(QtCore.Qt.DockWidgetArea.RightDockWidgetArea, self._analysis_dock)
+        self.tabifyDockWidget(self._tree_dock, self._analysis_dock)
+        self._analysis_dock.hide()
         self.addDockWidget(QtCore.Qt.DockWidgetArea.BottomDockWidgetArea, self._controls_dock)
         view_menu = self.menuBar().addMenu("View")
         view_menu.addAction(self._tree_dock.toggleViewAction())
+        view_menu.addAction(self._analysis_dock.toggleViewAction())
         view_menu.addAction(self._controls_dock.toggleViewAction())
         self.setWindowTitle("NightyGo")
         self.resize(860, 760)
@@ -213,6 +255,134 @@ class MainWindow(QtWidgets.QMainWindow):
         if self._controller.save_sgf(path):
             self.statusBar().showMessage(f"Saved {path}", 3000)
 
+    def _start_engine_analysis(self) -> None:
+        self._analysis_dock.show()
+        if self._engine.status == GtpEngine.ANALYZING:
+            self._analysis_requested = False
+            self._engine.stop_analysis()
+            self._analysis_status.setText("Stopping analysis…")
+            return
+        if self._engine.status == GtpEngine.READY:
+            self._request_current_position_analysis()
+            return
+        program = self._settings.value("engine_program", "")
+        if not program:
+            self._analysis_status.setText("Choose the KataGo executable in Preferences")
+            self._open_settings()
+            program = self._settings.value("engine_program", "")
+        if not program:
+            return
+        try:
+            arguments = tuple(
+                shlex.split(self._settings.value("engine_arguments", "gtp"))
+            )
+        except ValueError as error:
+            self.statusBar().showMessage(f"Invalid engine arguments: {error}", 6000)
+            return
+        self._analysis_requested = True
+        self._analysis_status.setText("Starting KataGo…")
+        self._engine.start(EngineConfig(str(program), arguments))
+
+    def _stop_engine_analysis(self) -> None:
+        self._analysis_requested = False
+        self._engine.stop_analysis()
+
+    def _engine_ready(self, name: str, version: str) -> None:
+        self._analysis_status.setText(f"{name} · {version}")
+        if self._analysis_requested:
+            self._request_current_position_analysis()
+
+    def _engine_status_changed(self, status: str) -> None:
+        if status == GtpEngine.ERROR:
+            self._analysis_status.setText("Engine error; see status message")
+        elif status == GtpEngine.STARTING:
+            self._analysis_status.setText("Starting engine…")
+        elif status == GtpEngine.STOPPED:
+            self._analysis_status.setText("Engine stopped")
+        elif status == GtpEngine.ANALYZING:
+            self._analysis_status.setText("Analyzing current position…")
+
+    def _request_current_position_analysis(self) -> None:
+        self._analysis_requested = True
+        root = self._controller.root
+        try:
+            komi = float((root.values("KM") or ["6.5"])[0])
+        except ValueError:
+            komi = 6.5
+        self._engine.set_position(self.game.size, komi)
+        black: list[str] = []
+        white: list[str] = []
+        columns = "ABCDEFGHJKLMNOPQRSTUVWXYZ"
+        for y, row in enumerate(self.game.board):
+            for x, color in enumerate(row):
+                if color == 0:
+                    continue
+                vertex = f"{columns[x]}{self.game.size - y}"
+                (black if color == BLACK else white).append(vertex)
+        self._engine.set_stones(tuple(black), tuple(white))
+        player = "B" if self.game.to_play == BLACK else "W"
+        self._engine.start_analysis(player, interval_ms=500)
+
+    def _analysis_updated(self, move: AnalysisMove) -> None:
+        self._analysis_data[move.vertex] = move
+        ordered = sorted(
+            self._analysis_data.values(),
+            key=lambda candidate: (
+                candidate.order if candidate.order is not None else 999,
+                -candidate.visits,
+            ),
+        )
+        self._candidate_list.clear()
+        for candidate in ordered[:10]:
+            winrate = (
+                f"{candidate.winrate * 100:.1f}%"
+                if candidate.winrate is not None
+                else "—"
+            )
+            score = (
+                f"{candidate.score_lead:+.1f} pts"
+                if candidate.score_lead is not None
+                else "—"
+            )
+            item = QtWidgets.QListWidgetItem(
+                f"{candidate.order + 1 if candidate.order is not None else '·'}  "
+                f"{candidate.vertex}    {winrate}    {score}    "
+                f"{candidate.visits:,} visits"
+            )
+            item.setData(QtCore.Qt.ItemDataRole.UserRole, candidate.vertex)
+            self._candidate_list.addItem(item)
+        if ordered:
+            best = ordered[0]
+            winrate = "—" if best.winrate is None else f"{best.winrate * 100:.1f}%"
+            score = "—" if best.score_lead is None else f"{best.score_lead:+.1f} pts"
+            self._analysis_summary.setText(
+                f"Top move {best.vertex} · {winrate} · {score} · {best.visits:,} visits"
+            )
+        self._board.set_analysis_moves(
+            [candidate.vertex for candidate in ordered[:8]],
+            self.game.size,
+        )
+
+    def _play_selected_candidate(self, *_args) -> None:
+        item = self._candidate_list.currentItem()
+        if item is None:
+            return
+        vertex = str(item.data(QtCore.Qt.ItemDataRole.UserRole))
+        columns = "ABCDEFGHJKLMNOPQRSTUVWXYZ"
+        if len(vertex) < 2 or vertex[0] not in columns:
+            return
+        try:
+            x = columns.index(vertex[0])
+            y = self.game.size - int(vertex[1:])
+        except ValueError:
+            return
+        if self._controller.play_at(x, y):
+            self._stone_sound.play()
+
+    def closeEvent(self, event: QtGui.QCloseEvent) -> None:
+        self._engine.stop()
+        super().closeEvent(event)
+
     def _show_error(self, title: str, error: Exception) -> None:
         QtWidgets.QMessageBox.critical(self, title, str(error))
 
@@ -249,12 +419,27 @@ class MainWindow(QtWidgets.QMainWindow):
         stone_selector.setCurrentText(
             self._settings.value("stone_material", "Traditional")
         )
+        engine_program = QtWidgets.QLineEdit(
+            self._settings.value("engine_program", ""), dialog
+        )
+        engine_arguments = QtWidgets.QLineEdit(
+            self._settings.value("engine_arguments", "gtp"), dialog
+        )
+        engine_browse = QtWidgets.QPushButton("Browse…", dialog)
+        engine_browse.clicked.connect(
+            lambda: self._select_engine_program(engine_program)
+        )
+        engine_row = QtWidgets.QHBoxLayout()
+        engine_row.addWidget(engine_program, 1)
+        engine_row.addWidget(engine_browse)
 
         form = QtWidgets.QFormLayout()
         form.addRow("Application font size", font_size)
         form.addRow("Go stone placement sound", sound_row)
         form.addRow("Board texture", board_selector)
         form.addRow("Stone texture", stone_selector)
+        form.addRow("KataGo executable", engine_row)
+        form.addRow("Engine arguments", engine_arguments)
         source_hint = QtWidgets.QLabel("Five real Go-stone recordings from two board types.")
         source_hint.setWordWrap(True)
         buttons = QtWidgets.QDialogButtonBox(
@@ -275,10 +460,14 @@ class MainWindow(QtWidgets.QMainWindow):
         selected_sound = sound_selector.currentText()
         selected_board = board_selector.currentText()
         selected_stones = stone_selector.currentText()
+        selected_engine = engine_program.text().strip()
+        selected_arguments = engine_arguments.text().strip()
         self._settings.setValue("font_size", size)
         self._settings.setValue("placement_sound", selected_sound)
         self._settings.setValue("board_material", selected_board)
         self._settings.setValue("stone_material", selected_stones)
+        self._settings.setValue("engine_program", selected_engine)
+        self._settings.setValue("engine_arguments", selected_arguments)
         self._stone_sound.set_sound(selected_sound)
         self._board.set_board_material(selected_board)
         self._board.set_stone_material(selected_stones)
@@ -291,6 +480,16 @@ class MainWindow(QtWidgets.QMainWindow):
             selected_sound,
         )
         self._set_font_size(size)
+
+    def _select_engine_program(self, field: QtWidgets.QLineEdit) -> None:
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self,
+            "Select KataGo executable",
+            field.text() or str(Path.home()),
+            "All files (*)",
+        )
+        if path:
+            field.setText(path)
 
     def _set_font_size(self, size: int) -> None:
         self._font_size = size
@@ -323,6 +522,13 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _refresh(self) -> None:
         self.game = self._controller.game
+        if self._engine.status == GtpEngine.ANALYZING:
+            self._analysis_requested = False
+            self._engine.stop_analysis()
+        self._analysis_data.clear()
+        self._candidate_list.clear()
+        self._analysis_summary.setText("Analysis not available for this move")
+        self._board.set_analysis_moves([], self.game.size)
         self._board.set_game(self.game)
         self._refresh_tree()
         self._undo_button.setEnabled(self._controller.session.can_undo)

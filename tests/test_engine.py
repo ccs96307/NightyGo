@@ -7,7 +7,12 @@ from pathlib import Path
 
 from PySide6 import QtCore
 
-from nightygo.engine import EngineConfig, GtpEngine, parse_katago_info
+from nightygo.engine import (
+    EngineConfig,
+    GtpEngine,
+    parse_katago_info,
+    parse_katago_info_lines,
+)
 
 
 class KataGoInfoTests(unittest.TestCase):
@@ -23,6 +28,15 @@ class KataGoInfoTests(unittest.TestCase):
         self.assertEqual(result.winrate, 0.624)
         self.assertEqual(result.score_lead, 3.5)
         self.assertEqual(result.principal_variation, ("Q16", "D4", "C3"))
+
+    def test_parses_multiple_candidates_from_one_output_line(self) -> None:
+        results = parse_katago_info_lines(
+            "info move D4 visits 20 winrate 0.62 scoreLead 3 order 0 pv D4 C3 "
+            "info move Q16 visits 10 winrate 0.55 scoreLead 1 order 1 pv Q16 D16"
+        )
+
+        self.assertEqual([item.vertex for item in results], ["D4", "Q16"])
+        self.assertEqual(results[1].order, 1)
 
     def test_ignores_non_analysis_lines(self) -> None:
         self.assertIsNone(parse_katago_info("KataGo v1.15.0"))
@@ -44,9 +58,12 @@ class GtpProcessTests(unittest.TestCase):
                 "    if not line: continue\n"
                 "    command_id, command = line.split(' ', 1)\n"
                 "    name = command.split()[0]\n"
+                "    if name == 'kata-analyze':\n"
+                "        print('info move D4 visits 20 winrate 0.62 scoreLead 3 order 0 pv D4 C3 info move Q16 visits 10 winrate 0.55 scoreLead 1 order 1 pv Q16 D16', flush=True)\n"
                 "    values = {'protocol_version': '2', 'name': 'Fake GTP', "
                 "'version': '1.0', 'genmove': 'D4'}\n"
-                "    print(f'= {command_id} {values.get(name, "" )}\\n', flush=True)\n"
+                "    response = values[name] if name in values else ''\n"
+                "    print(f'= {command_id} {response}\\n', flush=True)\n"
                 "    if name == 'quit': break\n",
                 encoding="utf-8",
             )
@@ -72,6 +89,20 @@ class GtpProcessTests(unittest.TestCase):
             QtCore.QTimer.singleShot(2500, response_loop.quit)
             response_loop.exec()
             self.assertEqual(responses, ["D4"])
+
+            candidates = []
+            analysis_loop = QtCore.QEventLoop()
+
+            def on_analysis(candidate) -> None:
+                candidates.append(candidate.vertex)
+                if len(candidates) >= 2:
+                    analysis_loop.quit()
+
+            engine.analysisUpdated.connect(on_analysis)
+            engine.start_analysis("B")
+            QtCore.QTimer.singleShot(2500, analysis_loop.quit)
+            analysis_loop.exec()
+            self.assertEqual(candidates, ["D4", "Q16"])
             stop_loop = QtCore.QEventLoop()
             engine.statusChanged.connect(
                 lambda status: stop_loop.quit() if status == GtpEngine.STOPPED else None

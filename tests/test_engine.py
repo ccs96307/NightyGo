@@ -1,11 +1,15 @@
 """Tests for GTP analysis line parsing."""
 
+import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
 from PySide6 import QtCore
+from PySide6.QtWidgets import QApplication
 
 from nightygo.engine import (
     EngineConfig,
@@ -62,7 +66,7 @@ class KataGoInfoTests(unittest.TestCase):
 
 class GtpProcessTests(unittest.TestCase):
     def test_process_handshake_and_command_response_are_async(self) -> None:
-        app = QtCore.QCoreApplication.instance() or QtCore.QCoreApplication([])
+        app = QApplication.instance() or QApplication([])
         with tempfile.TemporaryDirectory() as directory:
             script = Path(directory) / "fake_gtp.py"
             script.write_text(

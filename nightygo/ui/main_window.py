@@ -116,6 +116,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._review_stones_command: int | None = None
         self._review_waiting_analysis_response = False
         self._reviewing = False
+        self._review_requested = False
         self._review_index = 0
         self._review_timer = QtCore.QTimer(self)
         self._review_timer.setSingleShot(True)
@@ -134,14 +135,17 @@ class MainWindow(QtWidgets.QMainWindow):
         self._review_stop_button.setEnabled(False)
         self._review_findings = QtWidgets.QListWidget(self)
         self._review_findings.itemClicked.connect(self._jump_to_review_move)
-        start_analysis_button = QtWidgets.QPushButton("Analyze position")
-        start_analysis_button.clicked.connect(self._start_engine_analysis)
+        self._start_analysis_button = QtWidgets.QPushButton("Analyze position")
+        self._start_analysis_button.clicked.connect(self._start_analysis_button_clicked)
         stop_analysis_button = QtWidgets.QPushButton("Stop")
         stop_analysis_button.clicked.connect(self._stop_engine_analysis)
+        configure_engine_button = QtWidgets.QPushButton("Configure KataGo…")
+        configure_engine_button.setProperty("variant", "secondary")
+        configure_engine_button.clicked.connect(self._open_settings)
         play_candidate_button = QtWidgets.QPushButton("Play selected move")
         play_candidate_button.clicked.connect(self._play_selected_candidate)
         analysis_buttons = QtWidgets.QHBoxLayout()
-        analysis_buttons.addWidget(start_analysis_button)
+        analysis_buttons.addWidget(self._start_analysis_button)
         analysis_buttons.addWidget(stop_analysis_button)
         analysis_layout = QtWidgets.QVBoxLayout()
         analysis_layout.addWidget(self._analysis_status)
@@ -150,6 +154,7 @@ class MainWindow(QtWidgets.QMainWindow):
         analysis_layout.addWidget(self._show_ownership)
         analysis_layout.addWidget(self._candidate_list, 1)
         analysis_layout.addLayout(analysis_buttons)
+        analysis_layout.addWidget(configure_engine_button)
         analysis_layout.addWidget(play_candidate_button)
         review_buttons = QtWidgets.QHBoxLayout()
         review_buttons.addWidget(review_button)
@@ -698,6 +703,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def _start_engine_analysis(self) -> None:
         self._analysis_dock.show()
         if self._engine.status == GtpEngine.ANALYZING:
+            self._review_requested = False
             self._analysis_requested = False
             self._engine.stop_analysis()
             self._analysis_status.setText("Stopping analysis…")
@@ -705,12 +711,14 @@ class MainWindow(QtWidgets.QMainWindow):
         if self._engine.status == GtpEngine.READY:
             self._request_current_position_analysis()
             return
+        if self._engine.status == GtpEngine.STARTING and self._engine.is_running:
+            self._analysis_requested = True
+            self._analysis_status.setText(self._t("Starting KataGo…"))
+            return
         program = self._settings.value("engine_program", "")
         if not program:
+            self._analysis_requested = False
             self._analysis_status.setText(self._t("Choose the KataGo executable in Preferences"))
-            self._open_settings()
-            program = self._settings.value("engine_program", "")
-        if not program:
             return
         try:
             arguments = list(shlex.split(self._settings.value("engine_arguments", "gtp")))
@@ -719,17 +727,27 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         selected_model = str(self._settings.value("engine_model", ""))
         arguments = apply_model_argument(arguments, selected_model)
-        self._analysis_requested = True
+        self._analysis_requested = not self._review_requested
         self._analysis_status.setText(self._t("Starting KataGo…"))
         self._engine.start(EngineConfig(str(program), arguments))
+
+    def _start_analysis_button_clicked(self) -> None:
+        """Start position analysis and cancel any queued review request."""
+        self._review_requested = False
+        self._review_stop_button.setEnabled(False)
+        self._start_engine_analysis()
 
     def _stop_engine_analysis(self) -> None:
         self._analysis_requested = False
         self._engine.stop_analysis()
 
     def _engine_ready(self, name: str, version: str) -> None:
+        if self._reviewing:
+            return
         self._analysis_status.setText(f"{name} · {version}")
-        if self._analysis_requested:
+        if self._review_requested:
+            self._begin_game_review()
+        elif self._analysis_requested:
             self._request_current_position_analysis()
 
     def _engine_status_changed(self, status: str) -> None:
@@ -741,6 +759,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self._analysis_status.setText(self._t("Engine stopped"))
         elif status == GtpEngine.ANALYZING:
             self._analysis_status.setText(self._t("Analyzing current position…"))
+        elif status == GtpEngine.READY and self._review_requested:
+            self._begin_game_review()
 
     def _request_current_position_analysis(self) -> None:
         self._analysis_requested = True
@@ -841,11 +861,31 @@ class MainWindow(QtWidgets.QMainWindow):
             self._board.set_ownership(values, self.game.size)
 
     def _start_game_review(self) -> None:
+        self._analysis_dock.show()
+        if not self._settings.value("engine_program", ""):
+            self._review_requested = False
+            self._review_stop_button.setEnabled(False)
+            self._analysis_status.setText(self._t("Choose the KataGo executable in Preferences"))
+            return
         if self._engine.status != GtpEngine.READY:
-            self._analysis_status.setText(self._t("Start KataGo before reviewing the game"))
+            self._review_requested = True
+            self._analysis_requested = False
+            self._review_stop_button.setEnabled(True)
+            self._analysis_status.setText(self._t("Starting KataGo…"))
+            if self._engine.status == GtpEngine.ANALYZING:
+                self._engine.stop_analysis()
+                return
             if not self._engine.is_running:
                 self._start_engine_analysis()
             return
+        self._begin_game_review()
+
+    def _begin_game_review(self) -> None:
+        if not self._review_requested and self._engine.status != GtpEngine.READY:
+            return
+        self._review_requested = False
+        self._review_stop_button.setEnabled(True)
+        self._start_analysis_button.setEnabled(False)
         session = SgfGameSession(self._controller.root)
         positions = []
         while True:
@@ -912,9 +952,11 @@ class MainWindow(QtWidgets.QMainWindow):
             self._engine.stop_analysis()
 
     def _stop_game_review(self) -> None:
+        self._review_requested = False
         self._reviewing = False
         self._review_timer.stop()
         self._review_stop_button.setEnabled(False)
+        self._start_analysis_button.setEnabled(True)
         if self._engine.status == GtpEngine.ANALYZING:
             self._engine.stop_analysis()
         self._analysis_status.setText(self._t("Review stopped"))
@@ -923,6 +965,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._reviewing = False
         self._review_timer.stop()
         self._review_stop_button.setEnabled(False)
+        self._start_analysis_button.setEnabled(True)
         drops = []
         for previous, current in zip(self._review_results, self._review_results[1:]):
             mover = self._review_positions[current[0]][1]

@@ -26,6 +26,7 @@ _ROWS = (
     ("AI Model Center…", "AI Model Center…", "AI 模型中心…", "AI 模型中心…", "AIモデルセンター…", "AI 모델 센터…"),
     ("Game Tree", "Game Tree", "棋譜樹", "棋谱树", "棋譜ツリー", "기보 트리"),
     ("AI Analysis", "AI Analysis", "AI 分析", "AI 分析", "AI解析", "AI 분석"),
+    ("Configure KataGo…", "Configure KataGo…", "設定 KataGo…", "配置 KataGo…", "KataGo を設定…", "KataGo 설정…"),
     ("Comments", "Comments", "註解", "注释", "コメント", "주석"),
     ("Game Library", "Game Library", "棋譜庫", "棋谱库", "棋譜ライブラリ", "기보 라이브러리"),
     ("No saved games yet", "No saved games yet", "目前沒有已儲存的棋譜", "目前没有已保存的棋谱", "保存済みの棋譜はありません", "저장된 기보가 없습니다"),

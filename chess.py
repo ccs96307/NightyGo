@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 from PySide6 import QtCore, QtGui, QtWidgets
-from gameManager import *
+from game_manager import *
 
 
 class chess(QtWidgets.QLabel):

@@ -2166,7 +2166,7 @@
  #        self.c305.setScaledContents(True)
  #        self.c305.setObjectName("c305")"""
 
-text = open('Board_GUI.py', 'r', encoding='utf-8').read()
+text = open('board_gui.py', 'r', encoding='utf-8').read()
 
 
 import re
@@ -2203,4 +2203,4 @@ for line in text.split('\n'):
         result += '%s\n' % line
 
 print(result)
-open('ChessSimpleFix.py', 'w', encoding='utf-8').write(result)
+open('main.py', 'w', encoding='utf-8').write(result)

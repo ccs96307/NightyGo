@@ -4,6 +4,7 @@ import unittest
 
 from nightygo.model_center import (
     HardwareProfile,
+    apply_config_argument,
     apply_model_argument,
     classify_model,
     parse_model_catalog,
@@ -55,6 +56,16 @@ class ModelCatalogTests(unittest.TestCase):
         self.assertEqual(
             apply_model_argument(("gtp", "-model", "old.bin.gz"), "new.bin.gz"),
             ("gtp", "-model", "new.bin.gz"),
+        )
+
+    def test_default_engine_config_is_added_without_replacing_custom_config(self) -> None:
+        self.assertEqual(
+            apply_config_argument(("gtp",), "/app/gtp.cfg"),
+            ("gtp", "-config", "/app/gtp.cfg"),
+        )
+        self.assertEqual(
+            apply_config_argument(("gtp", "-config", "custom.cfg"), "/app/gtp.cfg"),
+            ("gtp", "-config", "custom.cfg"),
         )
 
 

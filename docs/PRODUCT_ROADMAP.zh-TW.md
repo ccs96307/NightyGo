@@ -53,6 +53,6 @@ NightyGo 是桌面圍棋對局、棋譜編輯與 AI 覆盤工作室。棋盤是�
 
 ## 狀態
 
-- 已完成：現況盤點、產品定位與介面基準文件；棋盤 9/13/19 尺寸選擇；棋局 redo；GameController 將棋局/SGF 狀態與 UI 分離；GTP 非同步程序服務、KataGo 分析解析、引擎設定與候選著面板。
-- 驗證：棋規、SGF、GameController、假 GTP 引擎握手／genmove／kata-analyze 候選著測試通過；Widgets 主視窗離屏啟動通過。
-- 進行中：SGF metadata/markup 編輯與 QML 工作區原型。
+- 已完成：現況盤點、產品定位與介面基準文件；棋盤 9/13/19 尺寸選擇；棋局 redo；GameController 將棋局/SGF 狀態與 UI 分離；依 SGF CA 讀取、UTF-8 正規化寫入；棋局資訊、註解、棋譜分支與棋盤標記編輯；GTP 非同步服務、KataGo 分析解析、引擎設定與候選著面板。
+- 驗證：棋規、SGF legacy encoding round-trip、GameController、假 GTP 引擎握手／genmove／kata-analyze 候選著測試通過；Widgets 主視窗和 markup 離屏繪製通過。
+- 進行中：QML 工作區原型、AI 勝率/目差/ownership 視覺化、棋譜庫與復原流程。

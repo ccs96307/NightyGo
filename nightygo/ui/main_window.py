@@ -109,6 +109,20 @@ class MainWindow(QtWidgets.QMainWindow):
         self._analysis_dock.setWidget(analysis_widget)
         self._analysis_dock.setTitleBarWidget(DockTitleBar(self._analysis_dock))
 
+        self._comment_editor = QtWidgets.QPlainTextEdit(self)
+        self._comment_editor.setPlaceholderText("Comments for the selected move…")
+        save_comment_button = QtWidgets.QPushButton("Save comment")
+        save_comment_button.clicked.connect(self._save_current_comment)
+        comment_layout = QtWidgets.QVBoxLayout()
+        comment_layout.addWidget(self._comment_editor, 1)
+        comment_layout.addWidget(save_comment_button)
+        comment_widget = QtWidgets.QWidget(self)
+        comment_widget.setLayout(comment_layout)
+        self._comments_dock = QtWidgets.QDockWidget("Comments", self)
+        self._comments_dock.setObjectName("commentsDock")
+        self._comments_dock.setWidget(comment_widget)
+        self._comments_dock.setTitleBarWidget(DockTitleBar(self._comments_dock))
+
         undo_action = QtGui.QAction("Undo", self)
         undo_action.setShortcut(QtGui.QKeySequence.StandardKey.Undo)
         undo_action.triggered.connect(self._undo)
@@ -156,7 +170,11 @@ class MainWindow(QtWidgets.QMainWindow):
         view_menu = self.menuBar().addMenu("View")
         view_menu.addAction(self._tree_dock.toggleViewAction())
         view_menu.addAction(self._analysis_dock.toggleViewAction())
+        view_menu.addAction(self._comments_dock.toggleViewAction())
         view_menu.addAction(self._controls_dock.toggleViewAction())
+        self.addDockWidget(QtCore.Qt.DockWidgetArea.RightDockWidgetArea, self._comments_dock)
+        self.tabifyDockWidget(self._tree_dock, self._comments_dock)
+        self._comments_dock.hide()
         self.setWindowTitle("NightyGo")
         self.resize(860, 760)
         self.resizeDocks(
@@ -165,7 +183,36 @@ class MainWindow(QtWidgets.QMainWindow):
             QtCore.Qt.Orientation.Vertical,
         )
         self._set_font_size(self._font_size)
+        self._create_edit_menu()
+        self._board.markupRequested.connect(self._apply_markup)
         self._refresh()
+
+    def _create_edit_menu(self) -> None:
+        menu = self.menuBar().addMenu("Edit")
+        game_info = menu.addAction("Game information…")
+        game_info.triggered.connect(self._edit_game_info)
+        comment = menu.addAction("Edit current comment")
+        comment.triggered.connect(self._comments_dock.show)
+        menu.addSeparator()
+        mainline = menu.addAction("Make current variation the main line")
+        mainline.triggered.connect(self._controller.make_current_variation_mainline)
+        delete = menu.addAction("Delete current variation")
+        delete.triggered.connect(self._controller.delete_current_variation)
+        markup_menu = menu.addMenu("Add board markup")
+        tools = (
+            ("Triangle", "triangle"),
+            ("Square", "square"),
+            ("Circle", "circle"),
+            ("Cross mark", "cross"),
+            ("Text label…", "label"),
+            ("Line", "line"),
+            ("Arrow", "arrow"),
+        )
+        for label, mode in tools:
+            action = markup_menu.addAction(label)
+            action.triggered.connect(
+                lambda _checked=False, selected=mode: self._select_markup_tool(selected)
+            )
 
     def _create_file_menu(self) -> None:
         menu = self.menuBar().addMenu("File")
@@ -254,6 +301,76 @@ class MainWindow(QtWidgets.QMainWindow):
     def _write_to(self, path: str) -> None:
         if self._controller.save_sgf(path):
             self.statusBar().showMessage(f"Saved {path}", 3000)
+
+    def _save_current_comment(self) -> None:
+        self._controller.set_current_comment(self._comment_editor.toPlainText())
+        self.statusBar().showMessage("Comment saved to the current SGF node", 3000)
+
+    def _edit_game_info(self) -> None:
+        fields = (
+            ("PB", "Black player"),
+            ("PW", "White player"),
+            ("BR", "Black rank"),
+            ("WR", "White rank"),
+            ("DT", "Date"),
+            ("EV", "Event"),
+            ("RO", "Round"),
+            ("RE", "Result"),
+            ("KM", "Komi"),
+            ("RU", "Rules"),
+            ("TM", "Time limit (seconds)"),
+            ("OT", "Overtime"),
+        )
+        dialog = QtWidgets.QDialog(self)
+        dialog.setWindowTitle("Game information")
+        inputs: dict[str, QtWidgets.QLineEdit] = {}
+        form = QtWidgets.QFormLayout()
+        for identifier, label in fields:
+            field = QtWidgets.QLineEdit(
+                (self._controller.root.values(identifier) or [""])[0], dialog
+            )
+            inputs[identifier] = field
+            form.addRow(label, field)
+        buttons = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.StandardButton.Ok
+            | QtWidgets.QDialogButtonBox.StandardButton.Cancel,
+            parent=dialog,
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout = QtWidgets.QVBoxLayout(dialog)
+        layout.addLayout(form)
+        layout.addWidget(buttons)
+        if dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
+            self._controller.set_game_info(
+                {key: field.text() for key, field in inputs.items()}
+            )
+
+    def _select_markup_tool(self, mode: str) -> None:
+        self._pending_line_start: tuple[int, int] | None = None
+        self._board.set_markup_mode(mode)
+        action = "two intersections" if mode in ("line", "arrow") else "an intersection"
+        self.statusBar().showMessage(f"Click {action} on the board to add markup", 5000)
+
+    def _apply_markup(self, x: int, y: int, mode: str) -> None:
+        if mode in ("line", "arrow"):
+            if self._pending_line_start is None:
+                self._pending_line_start = (x, y)
+                self.statusBar().showMessage("Select the end point", 5000)
+                return
+            x1, y1 = self._pending_line_start
+            self._pending_line_start = None
+            self._board.set_markup_mode("")
+            self._controller.add_line_markup(mode, x1, y1, x, y)
+            return
+        label = ""
+        if mode == "label":
+            label, accepted = QtWidgets.QInputDialog.getText(
+                self, "Board label", "Label text"
+            )
+            if not accepted or not label:
+                return
+        self._controller.add_markup(mode, x, y, label)
 
     def _start_engine_analysis(self) -> None:
         self._analysis_dock.show()
@@ -529,7 +646,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self._candidate_list.clear()
         self._analysis_summary.setText("Analysis not available for this move")
         self._board.set_analysis_moves([], self.game.size)
+        self._board.set_markup(self._controller.current_node.properties)
         self._board.set_game(self.game)
+        self._comment_editor.setPlainText(
+            "\n".join(self._controller.current_node.values("C"))
+        )
         self._refresh_tree()
         self._undo_button.setEnabled(self._controller.session.can_undo)
         self._redo_button.setEnabled(self._controller.session.can_advance)

@@ -32,7 +32,23 @@ continued])")
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "games.sgf"
             write_sgf(collection, path)
-            self.assertEqual(read_sgf(path), collection)
+            reopened = read_sgf(path)
+            self.assertEqual(len(reopened.games), 2)
+            self.assertEqual(reopened.games[0].values("SZ"), ["9"])
+            self.assertEqual(reopened.games[1].values("SZ"), ["13"])
+
+    def test_reads_declared_legacy_charset_and_normalizes_save_to_utf8(self) -> None:
+        source = "(;FF[4]CA[Shift_JIS]SZ[9]C[日本語])"
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "legacy.sgf"
+            path.write_bytes(source.encode("shift_jis"))
+            collection = read_sgf(path)
+            self.assertEqual(collection.games[0].values("C"), ["日本語"])
+
+            write_sgf(collection, path)
+            saved = path.read_bytes().decode("utf-8")
+            self.assertIn("CA[UTF-8]", saved)
+            self.assertIn("C[日本語]", saved)
 
     def test_rejects_malformed_collection(self) -> None:
         with self.assertRaises(SgfError):

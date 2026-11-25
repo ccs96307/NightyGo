@@ -6,6 +6,8 @@ round-trip without discarding comments, annotations, or alternate lines.
 
 from __future__ import annotations
 
+import codecs
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -147,12 +149,18 @@ def serialize_sgf(collection: SgfCollection) -> str:
 
 
 def read_sgf(path: str | Path) -> SgfCollection:
-    """Read UTF-8 SGF, falling back to byte-preserving Latin-1 decoding."""
+    """Read an SGF file using its declared FF[4] character encoding."""
     data = Path(path).read_bytes()
-    try:
+    if data.startswith(codecs.BOM_UTF8):
         text = data.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        text = data.decode("latin-1")
+    else:
+        header = data[:8192].decode("ascii", errors="ignore")
+        encoding_match = re.search(r"\bCA\[([^\]]+)\]", header)
+        encoding = encoding_match.group(1) if encoding_match else "ISO-8859-1"
+        try:
+            text = data.decode(encoding)
+        except (LookupError, UnicodeDecodeError) as error:
+            raise SgfError(f"Could not decode SGF with charset {encoding!r}") from error
     return parse_sgf(text)
 
 
@@ -161,7 +169,12 @@ def write_sgf(collection: SgfCollection, path: str | Path) -> None:
     save_file = QtCore.QSaveFile(str(Path(path)))
     if not save_file.open(QtCore.QIODevice.OpenModeFlag.WriteOnly):
         raise OSError(save_file.errorString())
-    payload = serialize_sgf(collection).encode("utf-8")
+    normalized_games = []
+    for game in collection.games:
+        properties = dict(game.properties)
+        properties["CA"] = ["UTF-8"]
+        normalized_games.append(SgfNode(properties, game.children))
+    payload = serialize_sgf(SgfCollection(normalized_games)).encode("utf-8")
     written = save_file.write(payload)
     if written != len(payload):
         save_file.cancelWriting()

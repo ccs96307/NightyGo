@@ -6,10 +6,9 @@ import logging
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from nightygo.audio import StonePlacementSound
-from nightygo.model import BLACK, WHITE, IllegalMove
+from nightygo.model import BLACK, WHITE
 from nightygo.materials import STONE_MATERIALS
-from nightygo.sgf import SgfCollection, SgfError, read_sgf, write_sgf
-from nightygo.sgf_session import SgfGameSession
+from nightygo.game_controller import GameController
 from nightygo.ui.board_widget import BoardWidget
 from nightygo.ui.dock_title_bar import DockTitleBar
 from nightygo.ui.game_tree_view import GameTreeView
@@ -26,11 +25,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self._settings = QtCore.QSettings("NightyGo", "NightyGo")
         self._font_size = int(self._settings.value("font_size", 14))
         self._set_font_size(self._font_size)
-        self._collection = SgfCollection()
-        self._session = SgfGameSession.new_game()
-        self._collection.games.append(self._session.root)
-        self.game = self._session.game
-        self._current_path: str | None = None
+        self._controller = GameController(self)
+        self._controller.stateChanged.connect(self._refresh)
+        self._controller.errorOccurred.connect(
+            lambda message: self.statusBar().showMessage(message, 5000)
+        )
+        self.game = self._controller.game
         self._stone_sound = StonePlacementSound(self)
         self._board = BoardWidget(self)
         self._board.set_board_material(self._settings.value("board_material", "Classic wood"))
@@ -141,52 +141,23 @@ class MainWindow(QtWidgets.QMainWindow):
         save_as_action.triggered.connect(self._save_sgf_as)
 
     def _play_at(self, x: int, y: int) -> None:
-        try:
-            move = self.game.play(x, y)
-            self._session.append_move(move)
-        except (IllegalMove, SgfError) as error:
-            logger.debug("Rejected move at (%d, %d): %s", x, y, error)
-            self.statusBar().showMessage(str(error), 3000)
-            return
-        self.game = self._session.game
-        self._stone_sound.play()
-        self._refresh()
+        if self._controller.play_at(x, y):
+            self._stone_sound.play()
 
     def _undo(self) -> None:
-        if not self._session.can_undo:
-            return
-        self._previous()
+        self._controller.undo()
 
     def _redo(self) -> None:
-        if not self._session.can_advance:
-            return
-        self._next()
+        self._controller.redo()
 
     def _pass_turn(self) -> None:
-        try:
-            move = self.game.pass_turn()
-            self._session.append_move(move)
-        except (IllegalMove, SgfError) as error:
-            self.statusBar().showMessage(str(error), 3000)
-            return
-        self.game = self._session.game
-        self._refresh()
+        self._controller.pass_turn()
 
     def _previous(self) -> None:
-        try:
-            self.game = self._session.previous()
-        except SgfError as error:
-            self.statusBar().showMessage(str(error), 3000)
-            return
-        self._refresh()
+        self._controller.previous()
 
     def _next(self) -> None:
-        try:
-            self.game = self._session.next(self._variations.currentIndex())
-        except SgfError as error:
-            self.statusBar().showMessage(str(error), 3000)
-            return
-        self._refresh()
+        self._controller.next(self._variations.currentIndex())
 
     def _new_game(self) -> None:
         sizes = ("9", "13", "19")
@@ -205,11 +176,7 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         board_size = int(selected)
         self._settings.setValue("board_size", board_size)
-        self._session = SgfGameSession.new_game(board_size)
-        self._collection = SgfCollection([self._session.root])
-        self._current_path = None
-        self.game = self._session.game
-        self._refresh()
+        self._controller.new_game(board_size)
 
     def _open_sgf(self) -> None:
         path, _ = QtWidgets.QFileDialog.getOpenFileName(
@@ -217,33 +184,24 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         if not path:
             return
-        try:
-            collection = read_sgf(path)
-            session = SgfGameSession(collection.games[0], start_at_end=True)
-        except (OSError, SgfError, ValueError) as error:
-            logger.exception("Could not open SGF %s", path)
-            self._show_error("Could not open SGF", error)
-            return
-        self._collection = collection
-        self._session = session
-        self._current_path = path
-        self.game = session.game
-        self._refresh()
-        logger.info("Opened SGF %s (%d game tree(s))", path, len(collection.games))
-        if len(collection.games) > 1:
+        if self._controller.load_sgf(path) and len(self._controller.collection.games) > 1:
             self.statusBar().showMessage(
-                f"Loaded first game; preserving all {len(collection.games)} games when saving", 6000
+                "Loaded the first game; all game trees are preserved when saving",
+                6000,
             )
 
     def _save_sgf(self) -> None:
-        if self._current_path is None:
+        if not self._controller.current_path:
             self._save_sgf_as()
             return
-        self._write_to(self._current_path)
+        self._write_to(self._controller.current_path)
 
     def _save_sgf_as(self) -> None:
         path, _ = QtWidgets.QFileDialog.getSaveFileName(
-            self, "Save SGF", self._current_path or "game.sgf", "SGF files (*.sgf)"
+            self,
+            "Save SGF",
+            self._controller.current_path or "game.sgf",
+            "SGF files (*.sgf)",
         )
         if not path:
             return
@@ -252,15 +210,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._write_to(path)
 
     def _write_to(self, path: str) -> None:
-        try:
-            write_sgf(self._collection, path)
-        except (OSError, SgfError) as error:
-            logger.exception("Could not save SGF %s", path)
-            self._show_error("Could not save SGF", error)
-            return
-        self._current_path = path
-        logger.info("Saved SGF %s", path)
-        self.statusBar().showMessage(f"Saved {path}", 3000)
+        if self._controller.save_sgf(path):
+            self.statusBar().showMessage(f"Saved {path}", 3000)
 
     def _show_error(self, title: str, error: Exception) -> None:
         QtWidgets.QMessageBox.critical(self, title, str(error))
@@ -356,38 +307,34 @@ class MainWindow(QtWidgets.QMainWindow):
             game_tree.set_font_size(size)
 
     def _refresh_navigation(self, *_args) -> None:
-        self._next_button.setEnabled(self._session.can_advance)
+        self._next_button.setEnabled(self._controller.session.can_advance)
 
     def _tree_node_selected(self, node) -> None:
-        if node is self._session.current_node:
+        if node is self._controller.current_node:
             return
-        try:
-            self.game = self._session.navigate_to(node)
-        except SgfError as error:
-            self.statusBar().showMessage(str(error), 3000)
-            return
-        self._refresh()
+        self._controller.navigate_to(node)
 
     def _refresh_tree(self) -> None:
         self._game_tree.set_tree(
-            self._session.root,
-            self._session.current_node,
+            self._controller.root,
+            self._controller.current_node,
             self.game.size,
         )
 
     def _refresh(self) -> None:
+        self.game = self._controller.game
         self._board.set_game(self.game)
         self._refresh_tree()
-        self._undo_button.setEnabled(self._session.can_undo)
-        self._redo_button.setEnabled(self._session.can_advance)
-        self._previous_button.setEnabled(self._session.can_undo)
+        self._undo_button.setEnabled(self._controller.session.can_undo)
+        self._redo_button.setEnabled(self._controller.session.can_advance)
+        self._previous_button.setEnabled(self._controller.session.can_undo)
         self._variations.blockSignals(True)
         self._variations.clear()
-        for index, _child in enumerate(self._session.current_node.children, start=1):
+        for index, _child in enumerate(self._controller.current_node.children, start=1):
             self._variations.addItem(f"Variation {index}")
         self._variations.setCurrentIndex(0)
         self._variations.blockSignals(False)
-        self._next_button.setEnabled(self._session.can_advance)
+        self._next_button.setEnabled(self._controller.session.can_advance)
         if self.game.is_finished:
             self.statusBar().showMessage("Game ended after two passes")
         else:

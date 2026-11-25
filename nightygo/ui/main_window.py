@@ -19,6 +19,7 @@ from nightygo.ui.analysis_graph import AnalysisGraph
 from nightygo.sgf_session import SgfGameSession
 from nightygo.library import GameLibrary
 from nightygo.model_center import ModelCenterDialog, apply_model_argument
+from nightygo.i18n import LANGUAGES, retranslate_widget_tree, translate
 
 
 logger = logging.getLogger(__name__)
@@ -30,6 +31,9 @@ class MainWindow(QtWidgets.QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self._settings = QtCore.QSettings("NightyGo", "NightyGo")
+        self._language = str(self._settings.value("language", "en"))
+        if self._language not in LANGUAGES:
+            self._language = "en"
         self._library = GameLibrary(self._settings)
         self._font_size = int(self._settings.value("font_size", 14))
         self._ui_theme = str(self._settings.value("ui_theme", "Dark"))
@@ -100,6 +104,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._candidate_list = QtWidgets.QListWidget()
         self._candidate_list.itemDoubleClicked.connect(self._play_selected_candidate)
         self._analysis_data: dict[str, AnalysisMove] = {}
+        self._last_root_metrics: tuple[float, float | None, int] | None = None
+        self._review_drops: list[tuple[float, int]] = []
         self._analysis_requested = False
         self._review_positions: list[tuple[tuple[tuple[int, ...], ...], int, int, object]] = []
         self._review_results: list[tuple[int, float]] = []
@@ -194,6 +200,24 @@ class MainWindow(QtWidgets.QMainWindow):
         redo_action.triggered.connect(self._redo)
         self.addAction(redo_action)
         self._create_file_menu()
+        language_toolbar = self.addToolBar("Language")
+        language_toolbar.setMovable(False)
+        self._language_button = QtWidgets.QToolButton(self)
+        self._language_button.setPopupMode(QtWidgets.QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._language_menu = QtWidgets.QMenu(self._language_button)
+        self._language_actions: dict[str, QtGui.QAction] = {}
+        language_group = QtGui.QActionGroup(self)
+        language_group.setExclusive(True)
+        for code, label in LANGUAGES.items():
+            action = self._language_menu.addAction(label)
+            action.setCheckable(True)
+            action.setData(code)
+            action.setChecked(code == self._language)
+            action.triggered.connect(lambda _checked=False, selected=code: self._set_language(selected))
+            language_group.addAction(action)
+            self._language_actions[code] = action
+        self._language_button.setMenu(self._language_menu)
+        language_toolbar.addWidget(self._language_button)
         settings_menu = self.menuBar().addMenu("Settings")
         preferences_action = settings_menu.addAction("Preferences…")
         preferences_action.triggered.connect(self._open_settings)
@@ -226,6 +250,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._qml_workspace = QQuickWidget(self)
         self._qml_workspace.rootContext().setContextProperty("gameController", self._controller)
         self._qml_workspace.rootContext().setContextProperty("uiTheme", self._ui_theme)
+        self._qml_workspace.rootContext().setContextProperty("uiLanguage", self._language)
         self._qml_workspace.setResizeMode(QQuickWidget.ResizeMode.SizeRootObjectToView)
         self._qml_workspace.setSource(QtCore.QUrl.fromLocalFile(
             str(Path(__file__).resolve().parents[1] / "qml" / "BoardWorkspace.qml")
@@ -282,6 +307,67 @@ class MainWindow(QtWidgets.QMainWindow):
         self._offer_recovery()
         self._refresh_library()
         self._refresh()
+        self._retranslate_ui()
+
+    def _t(self, source: str, **values) -> str:
+        return translate(source, self._language, **values)
+
+    def _set_language(self, language: str) -> None:
+        if language not in LANGUAGES or language == self._language:
+            return
+        self._language = language
+        self._settings.setValue("language", language)
+        self._settings.sync()
+        self._retranslate_ui()
+
+    def _retranslate_ui(self) -> None:
+        retranslate_widget_tree(self, self._language)
+        for code, action in self._language_actions.items():
+            action.setChecked(code == self._language)
+        self._language_button.setText(self._t("Language"))
+        for dock in (self._tree_dock, self._analysis_dock, self._comments_dock, self._library_dock, self._controls_dock):
+            title_bar = dock.titleBarWidget()
+            if isinstance(title_bar, DockTitleBar):
+                title_bar.set_language(self._language)
+        self._game_tree.set_language(self._language)
+        self._analysis_graph.set_language(self._language)
+        self._qml_workspace.rootContext().setContextProperty("uiLanguage", self._language)
+        self.setWindowTitle("NightyGo" + (" *" if self._controller.isDirty else ""))
+        self._capture_label.setText(
+            self._t("Captured  Black: {black}   White: {white}", black=self.game.captures[BLACK], white=self.game.captures[WHITE])
+        )
+        if self.game.is_finished:
+            self.statusBar().showMessage(self._t("Game ended after two passes"))
+        else:
+            color = self._t("Black" if self.game.to_play == BLACK else "White")
+            self.statusBar().showMessage(self._t("{color} to play", color=color))
+        variation_index = self._variations.currentIndex()
+        self._variations.blockSignals(True)
+        self._variations.clear()
+        for index, _child in enumerate(self._controller.current_node.children, start=1):
+            self._variations.addItem(self._t("Variation {number}", number=index))
+        if self._variations.count():
+            self._variations.setCurrentIndex(min(max(0, variation_index), self._variations.count() - 1))
+        self._variations.blockSignals(False)
+        if self._analysis_data:
+            for candidate in tuple(self._analysis_data.values()):
+                self._analysis_updated(candidate)
+        if self._last_root_metrics is not None:
+            self._set_root_summary(*self._last_root_metrics)
+        elif not self._review_results:
+            self._analysis_summary.setText(self._t("Analysis not available for this move"))
+        self._review_findings.clear()
+        for loss, move in getattr(self, "_review_drops", []):
+            mover = "White" if self._review_positions[move][1] == BLACK else "Black"
+            item = QtWidgets.QListWidgetItem(self._t("Move {number} · {color}: estimated loss {loss:.1f}%", number=move, color=self._t(mover), loss=loss * 100))
+            item.setData(QtCore.Qt.ItemDataRole.UserRole, move)
+            self._review_findings.addItem(item)
+        if self._reviewing:
+            self._analysis_status.setText(self._t("Reviewing {count} positions…", count=len(self._review_positions)))
+        elif self._engine.status in (GtpEngine.STARTING, GtpEngine.STOPPED, GtpEngine.ANALYZING, GtpEngine.ERROR):
+            self._engine_status_changed(self._engine.status)
+        else:
+            self._analysis_status.setText(self._t("Engine ready"))
 
     def _create_edit_menu(self) -> None:
         menu = self.menuBar().addMenu("Edit")
@@ -353,8 +439,8 @@ class MainWindow(QtWidgets.QMainWindow):
             preferred_size = "19"
         selected, accepted = QtWidgets.QInputDialog.getItem(
             self,
-            "New Game",
-            "Board size",
+            self._t("New Game"),
+            self._t("Board size"),
             sizes,
             sizes.index(preferred_size),
             False,
@@ -369,7 +455,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if not self._confirm_discard_changes():
             return
         path, _ = QtWidgets.QFileDialog.getOpenFileName(
-            self, "Open SGF", "", "SGF files (*.sgf *.SGF);;All files (*)"
+            self, self._t("Open SGF…"), "", self._t("SGF files (*.sgf *.SGF);;All files (*)")
         )
         if not path:
             return
@@ -378,7 +464,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self._refresh_library()
         if self._controller.current_path == path and len(self._controller.collection.games) > 1:
             self.statusBar().showMessage(
-                "Loaded the first game; all game trees are preserved when saving",
+                self._t("Loaded the first game; all game trees are preserved when saving"),
                 6000,
             )
 
@@ -391,9 +477,9 @@ class MainWindow(QtWidgets.QMainWindow):
     def _save_sgf_as(self) -> None:
         path, _ = QtWidgets.QFileDialog.getSaveFileName(
             self,
-            "Save SGF",
+            self._t("Save SGF"),
             self._controller.current_path or "game.sgf",
-            "SGF files (*.sgf)",
+            self._t("SGF files (*.sgf)"),
         )
         if not path:
             return
@@ -406,18 +492,18 @@ class MainWindow(QtWidgets.QMainWindow):
             self._library.touch(path)
             self._refresh_library()
             self._remove_recovery()
-            self.statusBar().showMessage(f"Saved {path}", 3000)
+            self.statusBar().showMessage(self._t("Saved {path}", path=path), 3000)
 
     def _confirm_discard_changes(self) -> bool:
         if not self._controller.isDirty:
             return True
         box = QtWidgets.QMessageBox(self)
-        box.setWindowTitle("Unsaved game")
-        box.setText("This game has unsaved changes.")
-        box.setInformativeText("Save the changes before continuing?")
-        save = box.addButton(QtWidgets.QMessageBox.StandardButton.Save)
-        discard = box.addButton(QtWidgets.QMessageBox.StandardButton.Discard)
-        box.addButton(QtWidgets.QMessageBox.StandardButton.Cancel)
+        box.setWindowTitle(self._t("Unsaved game"))
+        box.setText(self._t("This game has unsaved changes."))
+        box.setInformativeText(self._t("Save the changes before continuing?"))
+        save = box.addButton(self._t("Save"), QtWidgets.QMessageBox.ButtonRole.AcceptRole)
+        discard = box.addButton(self._t("Discard"), QtWidgets.QMessageBox.ButtonRole.DestructiveRole)
+        box.addButton(self._t("Cancel"), QtWidgets.QMessageBox.ButtonRole.RejectRole)
         box.setDefaultButton(save)
         box.exec()
         if box.clickedButton() is save:
@@ -428,17 +514,16 @@ class MainWindow(QtWidgets.QMainWindow):
     def _offer_recovery(self) -> None:
         if not self._recovery_path.is_file():
             return
-        answer = QtWidgets.QMessageBox.question(
-            self,
-            "Recover unsaved game?",
-            "A recent autosaved game was found. Restore it?",
-            QtWidgets.QMessageBox.StandardButton.Restore
-            | QtWidgets.QMessageBox.StandardButton.Discard,
-            QtWidgets.QMessageBox.StandardButton.Restore,
-        )
-        if answer == QtWidgets.QMessageBox.StandardButton.Restore:
+        box = QtWidgets.QMessageBox(self)
+        box.setWindowTitle(self._t("Recover unsaved game?"))
+        box.setText(self._t("A recent autosaved game was found. Restore it?"))
+        restore = box.addButton(self._t("Restore"), QtWidgets.QMessageBox.ButtonRole.AcceptRole)
+        box.addButton(self._t("Discard"), QtWidgets.QMessageBox.ButtonRole.DestructiveRole)
+        box.setDefaultButton(restore)
+        box.exec()
+        if box.clickedButton() is restore:
             self._controller.load_recovery(self._recovery_path)
-            self.statusBar().showMessage("Recovered autosaved game; save it to keep the changes", 6000)
+            self.statusBar().showMessage(self._t("Recovered autosaved game; save it to keep the changes"), 6000)
         else:
             self._remove_recovery()
 
@@ -487,10 +572,10 @@ class MainWindow(QtWidgets.QMainWindow):
         item = self._library_list.currentItem()
         path = str(item.data(QtCore.Qt.ItemDataRole.UserRole)) if item else self._controller.current_path
         if not path:
-            self.statusBar().showMessage("Save this game before adding it to the library", 4000)
+            self.statusBar().showMessage(self._t("Save game before adding it to the library"), 4000)
             return
         tags, accepted = QtWidgets.QInputDialog.getText(
-            self, "Game tags", "Comma separated tags", text=", ".join(self._library.tags(path))
+            self, self._t("Game tags"), self._t("Comma separated tags"), text=", ".join(self._library.tags(path))
         )
         if accepted:
             self._library.set_tags(path, tags.split(","))
@@ -498,7 +583,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _save_current_comment(self) -> None:
         self._controller.set_current_comment(self._comment_editor.toPlainText())
-        self.statusBar().showMessage("Comment saved to the current SGF node", 3000)
+        self.statusBar().showMessage(self._t("Comment saved to the current SGF node"), 3000)
 
     def _edit_game_info(self) -> None:
         fields = (
@@ -516,7 +601,7 @@ class MainWindow(QtWidgets.QMainWindow):
             ("OT", "Overtime"),
         )
         dialog = QtWidgets.QDialog(self)
-        dialog.setWindowTitle("Game information")
+        dialog.setWindowTitle(self._t("Game information"))
         inputs: dict[str, QtWidgets.QLineEdit] = {}
         form = QtWidgets.QFormLayout()
         for identifier, label in fields:
@@ -524,12 +609,14 @@ class MainWindow(QtWidgets.QMainWindow):
                 (self._controller.root.values(identifier) or [""])[0], dialog
             )
             inputs[identifier] = field
-            form.addRow(label, field)
+            form.addRow(self._t(label), field)
         buttons = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.StandardButton.Ok
             | QtWidgets.QDialogButtonBox.StandardButton.Cancel,
             parent=dialog,
         )
+        buttons.button(QtWidgets.QDialogButtonBox.StandardButton.Ok).setText(self._t("OK"))
+        buttons.button(QtWidgets.QDialogButtonBox.StandardButton.Cancel).setText(self._t("Cancel"))
         buttons.accepted.connect(dialog.accept)
         buttons.rejected.connect(dialog.reject)
         layout = QtWidgets.QVBoxLayout(dialog)
@@ -543,14 +630,14 @@ class MainWindow(QtWidgets.QMainWindow):
     def _select_markup_tool(self, mode: str) -> None:
         self._pending_line_start: tuple[int, int] | None = None
         self._board.set_markup_mode(mode)
-        action = "two intersections" if mode in ("line", "arrow") else "an intersection"
-        self.statusBar().showMessage(f"Click {action} on the board to add markup", 5000)
+        action = "two intersections" if mode in ("line", "arrow") else "one intersection"
+        self.statusBar().showMessage(self._t("Click {target} on the board to add markup", target=self._t(action)), 5000)
 
     def _apply_markup(self, x: int, y: int, mode: str) -> None:
         if mode in ("line", "arrow"):
             if self._pending_line_start is None:
                 self._pending_line_start = (x, y)
-                self.statusBar().showMessage("Select the end point", 5000)
+                self.statusBar().showMessage(self._t("Select the end point"), 5000)
                 return
             x1, y1 = self._pending_line_start
             self._pending_line_start = None
@@ -560,7 +647,7 @@ class MainWindow(QtWidgets.QMainWindow):
         label = ""
         if mode == "label":
             label, accepted = QtWidgets.QInputDialog.getText(
-                self, "Board label", "Label text"
+                self, self._t("Text label…"), self._t("Label text")
             )
             if not accepted or not label:
                 return
@@ -578,7 +665,7 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         program = self._settings.value("engine_program", "")
         if not program:
-            self._analysis_status.setText("Choose the KataGo executable in Preferences")
+            self._analysis_status.setText(self._t("Choose the KataGo executable in Preferences"))
             self._open_settings()
             program = self._settings.value("engine_program", "")
         if not program:
@@ -586,12 +673,12 @@ class MainWindow(QtWidgets.QMainWindow):
         try:
             arguments = list(shlex.split(self._settings.value("engine_arguments", "gtp")))
         except ValueError as error:
-            self.statusBar().showMessage(f"Invalid engine arguments: {error}", 6000)
+            self.statusBar().showMessage(self._t("Invalid engine arguments: {error}", error=error), 6000)
             return
         selected_model = str(self._settings.value("engine_model", ""))
         arguments = apply_model_argument(arguments, selected_model)
         self._analysis_requested = True
-        self._analysis_status.setText("Starting KataGo…")
+        self._analysis_status.setText(self._t("Starting KataGo…"))
         self._engine.start(EngineConfig(str(program), arguments))
 
     def _stop_engine_analysis(self) -> None:
@@ -605,13 +692,13 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _engine_status_changed(self, status: str) -> None:
         if status == GtpEngine.ERROR:
-            self._analysis_status.setText("Engine error; see status message")
+            self._analysis_status.setText(self._t("Engine error; see status message"))
         elif status == GtpEngine.STARTING:
-            self._analysis_status.setText("Starting engine…")
+            self._analysis_status.setText(self._t("Starting engine…"))
         elif status == GtpEngine.STOPPED:
-            self._analysis_status.setText("Engine stopped")
+            self._analysis_status.setText(self._t("Engine stopped"))
         elif status == GtpEngine.ANALYZING:
-            self._analysis_status.setText("Analyzing current position…")
+            self._analysis_status.setText(self._t("Analyzing current position…"))
 
     def _request_current_position_analysis(self) -> None:
         self._analysis_requested = True
@@ -651,23 +738,29 @@ class MainWindow(QtWidgets.QMainWindow):
                 else "—"
             )
             score = (
-                f"{candidate.score_lead:+.1f} pts"
+                f"{candidate.score_lead:+.1f} {self._t('pts')}"
                 if candidate.score_lead is not None
                 else "—"
             )
             item = QtWidgets.QListWidgetItem(
-                f"{candidate.order + 1 if candidate.order is not None else '·'}  "
-                f"{candidate.vertex}    {winrate}    {score}    "
-                f"{candidate.visits:,} visits"
+                self._t(
+                    "{rank}  {vertex} · {winrate} · {score} · {visits} {unit}",
+                    rank=candidate.order + 1 if candidate.order is not None else "·",
+                    vertex=candidate.vertex,
+                    winrate=winrate,
+                    score=score,
+                    visits=f"{candidate.visits:,}",
+                    unit=self._t("Visits"),
+                )
             )
             item.setData(QtCore.Qt.ItemDataRole.UserRole, candidate.vertex)
             self._candidate_list.addItem(item)
         if ordered:
             best = ordered[0]
             winrate = "—" if best.winrate is None else f"{best.winrate * 100:.1f}%"
-            score = "—" if best.score_lead is None else f"{best.score_lead:+.1f} pts"
+            score = "—" if best.score_lead is None else f"{best.score_lead:+.1f} {self._t('pts')}"
             self._analysis_summary.setText(
-                f"Top move {best.vertex} · {winrate} · {score} · {best.visits:,} visits"
+                self._t("Top move {vertex} · {winrate} · {score} · {visits} visits", vertex=best.vertex, winrate=winrate, score=score, visits=f"{best.visits:,}")
             )
         self._board.set_analysis_moves(
             [candidate.vertex for candidate in ordered[:8]],
@@ -683,10 +776,9 @@ class MainWindow(QtWidgets.QMainWindow):
             else self.game.to_play
         )
         black_winrate = root.winrate if perspective == BLACK else 1.0 - root.winrate
-        score = "—" if root.score_lead is None else f"{root.score_lead:+.1f} pts"
-        self._analysis_summary.setText(
-            f"Position · Black {black_winrate * 100:.1f}% · {score} · {root.visits:,} visits"
-        )
+        self._last_root_metrics = (black_winrate, root.score_lead, root.visits)
+        self._set_root_summary(*self._last_root_metrics)
+
         if self._reviewing and self._review_index < len(self._review_positions):
             move_number = self._review_index
             if not self._review_results or self._review_results[-1][0] != move_number:
@@ -695,6 +787,12 @@ class MainWindow(QtWidgets.QMainWindow):
                 self._review_results[-1] = (move_number, black_winrate)
             self._analysis_graph.set_points(self._review_results)
 
+    def _set_root_summary(self, black_winrate: float, score_lead: float | None, visits: int) -> None:
+        score = "—" if score_lead is None else f"{score_lead:+.1f} {self._t('pts')}"
+        self._analysis_summary.setText(
+            self._t("Position · Black {winrate} · {score} · {visits} visits", winrate=f"{black_winrate * 100:.1f}%", score=score, visits=f"{visits:,}")
+        )
+
     def _ownership_updated(self, values: tuple[float, ...]) -> None:
         self._latest_ownership = values
         if self._show_ownership.isChecked():
@@ -702,7 +800,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _start_game_review(self) -> None:
         if self._engine.status != GtpEngine.READY:
-            self._analysis_status.setText("Start KataGo before reviewing the game")
+            self._analysis_status.setText(self._t("Start KataGo before reviewing the game"))
             if not self._engine.is_running:
                 self._start_engine_analysis()
             return
@@ -715,12 +813,13 @@ class MainWindow(QtWidgets.QMainWindow):
             session.next(0)
         self._review_positions = positions
         self._review_results = []
+        self._review_drops = []
         self._review_index = 0
         self._reviewing = True
         self._review_findings.clear()
         self._analysis_graph.set_points([])
         self._review_stop_button.setEnabled(True)
-        self._analysis_status.setText(f"Reviewing {len(positions)} positions…")
+        self._analysis_status.setText(self._t("Reviewing {count} positions…", count=len(positions)))
         self._review_next_position()
 
     def _review_next_position(self) -> None:
@@ -742,7 +841,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     (black if color == BLACK else white).append(vertex)
         self._review_stones_command = self._engine.set_stones(tuple(black), tuple(white))
         self._review_timer.stop()
-        self._analysis_status.setText(f"Reviewing move {move_number} ({self._review_index + 1}/{len(self._review_positions)})…")
+        self._analysis_status.setText(self._t("Reviewing move {number} ({current}/{total})…", number=move_number, current=self._review_index + 1, total=len(self._review_positions)))
 
     def _engine_response_received(self, command_id: int, command: str, _body: str) -> None:
         if self._reviewing and self._review_stones_command is not None and command_id == self._review_stones_command:
@@ -776,7 +875,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._review_stop_button.setEnabled(False)
         if self._engine.status == GtpEngine.ANALYZING:
             self._engine.stop_analysis()
-        self._analysis_status.setText("Review stopped")
+        self._analysis_status.setText(self._t("Review stopped"))
 
     def _finish_game_review(self) -> None:
         self._reviewing = False
@@ -788,12 +887,13 @@ class MainWindow(QtWidgets.QMainWindow):
             loss = previous[1] - current[1] if mover == WHITE else current[1] - previous[1]
             if loss >= 0.08:
                 drops.append((loss, current[0]))
-        for loss, move in sorted(drops, reverse=True)[:12]:
+        self._review_drops = sorted(drops, reverse=True)[:12]
+        for loss, move in self._review_drops:
             mover = "White" if self._review_positions[move][1] == BLACK else "Black"
-            item = QtWidgets.QListWidgetItem(f"Move {move} · {mover}: estimated loss {loss * 100:.1f}%")
+            item = QtWidgets.QListWidgetItem(self._t("Move {number} · {color}: estimated loss {loss:.1f}%", number=move, color=self._t(mover), loss=loss * 100))
             item.setData(QtCore.Qt.ItemDataRole.UserRole, move)
             self._review_findings.addItem(item)
-        self._analysis_status.setText(f"Review complete · {len(self._review_results)} positions · {len(drops)} major swings")
+        self._analysis_status.setText(self._t("Review complete · {positions} positions · {swings} major swings", positions=len(self._review_results), swings=len(drops)))
 
     def _jump_to_review_move(self, item: QtWidgets.QListWidgetItem) -> None:
         move_number = item.data(QtCore.Qt.ItemDataRole.UserRole)
@@ -830,7 +930,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _open_settings(self) -> None:
         dialog = QtWidgets.QDialog(self)
-        dialog.setWindowTitle("NightyGo Preferences")
+        dialog.setWindowTitle(self._t("NightyGo Preferences"))
         font_size = QtWidgets.QSpinBox(dialog)
         font_size.setRange(10, 30)
         font_size.setSuffix(" pt")
@@ -838,41 +938,45 @@ class MainWindow(QtWidgets.QMainWindow):
         animations_enabled = QtWidgets.QCheckBox(dialog)
         animations_enabled.setChecked(self._settings.value("animations_enabled", True, type=bool))
         theme_selector = QtWidgets.QComboBox(dialog)
-        theme_selector.addItems(("Dark", "Warm light"))
-        theme_selector.setCurrentText(self._ui_theme)
+        for theme in ("Dark", "Warm light"):
+            theme_selector.addItem(self._t(theme), theme)
+        theme_selector.setCurrentIndex(theme_selector.findData(self._ui_theme))
 
         sound_selector = QtWidgets.QComboBox(dialog)
-        sound_selector.addItems(StonePlacementSound.available_sounds())
+        for sound in StonePlacementSound.available_sounds():
+            sound_selector.addItem(self._t(sound), sound)
         saved_sound = self._settings.value(
             "placement_sound", StonePlacementSound.available_sounds()[0]
         )
         if saved_sound in StonePlacementSound.available_sounds():
-            sound_selector.setCurrentText(saved_sound)
-        preview_button = QtWidgets.QPushButton("Preview", dialog)
+            sound_selector.setCurrentIndex(sound_selector.findData(saved_sound))
+        preview_button = QtWidgets.QPushButton(self._t("Preview"), dialog)
         preview_button.clicked.connect(
-            lambda: self._stone_sound.play(sound_selector.currentText())
+            lambda: self._stone_sound.play(sound_selector.currentData())
         )
         sound_row = QtWidgets.QHBoxLayout()
         sound_row.addWidget(sound_selector, 1)
         sound_row.addWidget(preview_button)
 
         board_selector = QtWidgets.QComboBox(dialog)
-        board_selector.addItems(BoardWidget.available_board_materials())
-        board_selector.setCurrentText(
+        for material in BoardWidget.available_board_materials():
+            board_selector.addItem(self._t(material), material)
+        board_selector.setCurrentIndex(board_selector.findData(
             self._settings.value("board_material", "Classic wood")
-        )
+        ))
         stone_selector = QtWidgets.QComboBox(dialog)
-        stone_selector.addItems(STONE_MATERIALS)
-        stone_selector.setCurrentText(
+        for material in STONE_MATERIALS:
+            stone_selector.addItem(self._t(material), material)
+        stone_selector.setCurrentIndex(stone_selector.findData(
             self._settings.value("stone_material", "Traditional")
-        )
+        ))
         engine_program = QtWidgets.QLineEdit(
             self._settings.value("engine_program", ""), dialog
         )
         engine_arguments = QtWidgets.QLineEdit(
             self._settings.value("engine_arguments", "gtp"), dialog
         )
-        engine_browse = QtWidgets.QPushButton("Browse…", dialog)
+        engine_browse = QtWidgets.QPushButton(self._t("Browse…"), dialog)
         engine_browse.clicked.connect(
             lambda: self._select_engine_program(engine_program)
         )
@@ -881,21 +985,23 @@ class MainWindow(QtWidgets.QMainWindow):
         engine_row.addWidget(engine_browse)
 
         form = QtWidgets.QFormLayout()
-        form.addRow("Application font size", font_size)
-        form.addRow("Application theme", theme_selector)
-        form.addRow("Animated board backgrounds", animations_enabled)
-        form.addRow("Go stone placement sound", sound_row)
-        form.addRow("Board texture", board_selector)
-        form.addRow("Stone texture", stone_selector)
-        form.addRow("KataGo executable", engine_row)
-        form.addRow("Engine arguments", engine_arguments)
-        source_hint = QtWidgets.QLabel("Five real Go-stone recordings from two board types.")
+        form.addRow(self._t("Application font size"), font_size)
+        form.addRow(self._t("Application theme"), theme_selector)
+        form.addRow(self._t("Animated board backgrounds"), animations_enabled)
+        form.addRow(self._t("Go stone placement sound"), sound_row)
+        form.addRow(self._t("Board texture"), board_selector)
+        form.addRow(self._t("Stone texture"), stone_selector)
+        form.addRow(self._t("KataGo executable"), engine_row)
+        form.addRow(self._t("Engine arguments"), engine_arguments)
+        source_hint = QtWidgets.QLabel(self._t("Five real Go-stone recordings from two board types."))
         source_hint.setWordWrap(True)
         buttons = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.StandardButton.Ok
             | QtWidgets.QDialogButtonBox.StandardButton.Cancel,
             parent=dialog,
         )
+        buttons.button(QtWidgets.QDialogButtonBox.StandardButton.Ok).setText(self._t("OK"))
+        buttons.button(QtWidgets.QDialogButtonBox.StandardButton.Cancel).setText(self._t("Cancel"))
         buttons.accepted.connect(dialog.accept)
         buttons.rejected.connect(dialog.reject)
         layout = QtWidgets.QVBoxLayout(dialog)
@@ -906,11 +1012,11 @@ class MainWindow(QtWidgets.QMainWindow):
             return
 
         size = font_size.value()
-        theme = theme_selector.currentText()
+        theme = theme_selector.currentData()
         enable_animations = animations_enabled.isChecked()
-        selected_sound = sound_selector.currentText()
-        selected_board = board_selector.currentText()
-        selected_stones = stone_selector.currentText()
+        selected_sound = sound_selector.currentData()
+        selected_board = board_selector.currentData()
+        selected_stones = stone_selector.currentData()
         selected_engine = engine_program.text().strip()
         selected_arguments = engine_arguments.text().strip()
         self._settings.setValue("font_size", size)
@@ -947,7 +1053,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self._analysis_requested = False
             self._engine.stop()
         self._analysis_status.setText(
-            f"Model selected: {Path(path).name}. Start analysis to load it into KataGo."
+            self._t("Model selected: {name}. Start analysis to load it into KataGo.", name=Path(path).name)
         )
 
     def _select_engine_program(self, field: QtWidgets.QLineEdit) -> None:
@@ -1039,8 +1145,9 @@ class MainWindow(QtWidgets.QMainWindow):
             self._analysis_requested = False
             self._engine.stop_analysis()
         self._analysis_data.clear()
+        self._last_root_metrics = None
         self._candidate_list.clear()
-        self._analysis_summary.setText("Analysis not available for this move")
+        self._analysis_summary.setText(self._t("Analysis not available for this move"))
         self._board.set_analysis_moves([], self.game.size)
         self._latest_ownership = ()
         self._board.set_ownership((), 0)
@@ -1056,15 +1163,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self._variations.blockSignals(True)
         self._variations.clear()
         for index, _child in enumerate(self._controller.current_node.children, start=1):
-            self._variations.addItem(f"Variation {index}")
+            self._variations.addItem(self._t("Variation {number}", number=index))
         self._variations.setCurrentIndex(0)
         self._variations.blockSignals(False)
         self._next_button.setEnabled(self._controller.session.can_advance)
         if self.game.is_finished:
-            self.statusBar().showMessage("Game ended after two passes")
+            self.statusBar().showMessage(self._t("Game ended after two passes"))
         else:
-            color = "Black" if self.game.to_play == BLACK else "White"
-            self.statusBar().showMessage(f"{color} to play")
+            color = self._t("Black" if self.game.to_play == BLACK else "White")
+            self.statusBar().showMessage(self._t("{color} to play", color=color))
         self._capture_label.setText(
-            f"Captured  Black: {self.game.captures[BLACK]}   White: {self.game.captures[WHITE]}"
+            self._t("Captured  Black: {black}   White: {white}", black=self.game.captures[BLACK], white=self.game.captures[WHITE])
         )

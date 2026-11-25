@@ -16,6 +16,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 from PySide6 import QtCore, QtNetwork, QtWidgets
+from nightygo.i18n import translate
 
 
 logger = logging.getLogger(__name__)
@@ -234,10 +235,10 @@ def apply_model_argument(arguments: Sequence[str], model_path: str) -> tuple[str
 
 
 _TIER_NAME = {
-    "light": "輕量",
-    "balanced": "均衡",
-    "strong": "高棋力",
-    "maximum": "最高棋力",
+    "light": "Light",
+    "balanced": "Balanced",
+    "strong": "Strong",
+    "maximum": "Maximum",
 }
 _TIER_ORDER = {"light": 0, "balanced": 1, "strong": 2, "maximum": 3}
 
@@ -249,7 +250,8 @@ class ModelCenterDialog(QtWidgets.QDialog):
 
     def __init__(self, settings: QtCore.QSettings, parent=None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("NightyGo · AI Model Center")
+        self._language = str(settings.value("language", "en"))
+        self.setWindowTitle(self._t("NightyGo · AI Model Center"))
         self.setMinimumSize(850, 610)
         self._settings = settings
         self._profile = HardwareProfile.detect()
@@ -270,43 +272,43 @@ class ModelCenterDialog(QtWidgets.QDialog):
 
         self._hardware_label = QtWidgets.QLabel(self)
         self._hardware_label.setWordWrap(True)
-        refresh_hardware = QtWidgets.QPushButton("重新偵測", self)
+        refresh_hardware = QtWidgets.QPushButton(self._t("Refresh"), self)
         refresh_hardware.clicked.connect(self._refresh_hardware)
         hardware_row = QtWidgets.QHBoxLayout()
         hardware_row.addWidget(self._hardware_label, 1)
         hardware_row.addWidget(refresh_hardware)
 
         self._search = QtWidgets.QLineEdit(self)
-        self._search.setPlaceholderText("搜尋模型名稱 / 架構")
+        self._search.setPlaceholderText(self._t("Search model name / architecture"))
         self._search.textChanged.connect(self._populate_catalog)
         self._models = QtWidgets.QTreeWidget(self)
-        self._models.setHeaderLabels(("模型", "棋力評分", "上傳日期", "記憶體建議"))
+        self._models.setHeaderLabels(tuple(self._t(label) for label in ("Model", "Elo rating", "Upload date", "Memory advice")))
         self._models.setRootIsDecorated(False)
         self._models.setAlternatingRowColors(True)
         self._models.currentItemChanged.connect(self._selection_changed)
 
-        self._details = QtWidgets.QLabel("正在讀取 KataGo 官方模型目錄…", self)
+        self._details = QtWidgets.QLabel(self._t("Loading the official KataGo model catalogue…"), self)
         self._details.setWordWrap(True)
         self._details.setMinimumHeight(74)
         self._folder_label = QtWidgets.QLabel(str(self._download_dir), self)
         self._folder_label.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.TextSelectableByMouse)
-        folder_button = QtWidgets.QPushButton("選擇資料夾…", self)
+        folder_button = QtWidgets.QPushButton(self._t("Choose folder…"), self)
         folder_button.clicked.connect(self._choose_download_folder)
         folder_row = QtWidgets.QHBoxLayout()
-        folder_row.addWidget(QtWidgets.QLabel("下載位置："), 0)
+        folder_row.addWidget(QtWidgets.QLabel(self._t("Download location:")), 0)
         folder_row.addWidget(self._folder_label, 1)
         folder_row.addWidget(folder_button)
 
         self._progress = QtWidgets.QProgressBar(self)
         self._progress.setRange(0, 100)
         self._progress.setValue(0)
-        self._status = QtWidgets.QLabel("模型由 katagotraining.org 提供；此頁不會下載或安裝 KataGo 執行檔。", self)
+        self._status = QtWidgets.QLabel(self._t("The model files are provided by katagotraining.org. This page does not download or install the KataGo executable."), self)
         self._status.setWordWrap(True)
-        self._download_button = QtWidgets.QPushButton("下載並設為目前模型", self)
+        self._download_button = QtWidgets.QPushButton(self._t("Download and set as current model"), self)
         self._download_button.clicked.connect(self._download_or_use_selected)
-        self._download_only_button = QtWidgets.QPushButton("只下載", self)
+        self._download_only_button = QtWidgets.QPushButton(self._t("Download only"), self)
         self._download_only_button.clicked.connect(lambda: self._begin_download(use_when_done=False))
-        self._cancel_button = QtWidgets.QPushButton("取消下載", self)
+        self._cancel_button = QtWidgets.QPushButton(self._t("Cancel download"), self)
         self._cancel_button.clicked.connect(self._cancel_download)
         self._cancel_button.setEnabled(False)
         actions = QtWidgets.QHBoxLayout()
@@ -315,13 +317,12 @@ class ModelCenterDialog(QtWidgets.QDialog):
         actions.addWidget(self._cancel_button)
 
         license_link = QtWidgets.QLabel(
-            f'模型授權與來源：<a href="{LICENSE_URL}">KataGo Neural Network License</a>'
-            f' · <a href="{CATALOG_URL}">官方模型目錄</a>', self
+            f'{self._t("Network models and licenses:")} <a href="{LICENSE_URL}">KataGo Neural Network License</a>'
+            f' · <a href="{CATALOG_URL}">{self._t("Official model catalogue")}</a>', self
         )
         license_link.setOpenExternalLinks(True)
         note = QtWidgets.QLabel(
-            "記憶體提示是依目前可用 RAM／NVIDIA VRAM 和網路架構計算的保守估計。"
-            "KataGo 的搜尋快取也會佔用記憶體，實際需求會隨執行後端、批次大小及快取設定改變。",
+            self._t("Memory guidance is an estimate based on currently available RAM / NVIDIA VRAM and network architecture. KataGo search cache also uses memory; actual needs vary with backend, batch size and cache settings."),
             self,
         )
         note.setWordWrap(True)
@@ -341,18 +342,33 @@ class ModelCenterDialog(QtWidgets.QDialog):
         self._load_cached_catalog()
         self._fetch_catalog()
 
+    def _t(self, source: str, **values) -> str:
+        return translate(source, self._language, **values)
+
     def _refresh_hardware(self) -> None:
         self._profile = HardwareProfile.detect()
-        ram = f"RAM {self._profile.available_ram_gib:.1f} / {self._profile.total_ram_gib:.1f} GiB 可用 / 總量"
+        ram = self._t(
+            "RAM {available:.1f} / {total:.1f} GiB available / total",
+            available=self._profile.available_ram_gib,
+            total=self._profile.total_ram_gib,
+        )
         if self._profile.gpu_name:
             gpu_label = self._profile.gpu_name
             if not gpu_label.casefold().startswith("nvidia"):
                 gpu_label = f"NVIDIA {gpu_label}"
-            gpu = f"{gpu_label} · VRAM {self._profile.gpu_available_gib:.1f} / {self._profile.gpu_total_bytes / 1024**3:.1f} GiB 可用 / 總量"
+            gpu = self._t(
+                "NVIDIA {name} · VRAM {available:.1f} / {total:.1f} GiB available / total",
+                name=gpu_label.removeprefix("NVIDIA "),
+                available=self._profile.gpu_available_gib,
+                total=self._profile.gpu_total_bytes / 1024**3,
+            )
         else:
-            gpu = "未偵測到可讀取的 GPU VRAM（建議先依系統 RAM 評估）"
-        tier = _TIER_NAME[recommend_tier(self._profile)]
-        self._hardware_label.setText(f"<b>本機規格</b>　{ram}<br>{gpu}<br><b>建議模型級別：{tier}</b>")
+            gpu = self._t("GPU memory unavailable; advice uses system RAM")
+        tier = self._t(_TIER_NAME[recommend_tier(self._profile)])
+        self._hardware_label.setText(
+            f"<b>{self._t('Local hardware')}</b>　{ram}<br>{gpu}<br>"
+            f"<b>{self._t('Recommended model tier: {tier}', tier=tier)}</b>"
+        )
         self._populate_catalog()
 
     def _fetch_catalog(self) -> None:
@@ -392,13 +408,13 @@ class ModelCenterDialog(QtWidgets.QDialog):
                 )
                 self._catalog = records
                 self._populate_catalog()
-                self._status.setText(f"已更新官方模型目錄：{len(records)} 個模型。")
+                self._status.setText(self._t("Official catalogue updated: {count} models.", count=len(records)))
             else:
-                self._status.setText("官方目錄格式有變更，保留上次載入的模型清單。")
+                self._status.setText(self._t("The official catalogue format changed; keeping the previous list."))
         else:
             if reply.error() != QtNetwork.QNetworkReply.NetworkError.OperationCanceledError:
                 logger.warning("KataGo model catalogue unavailable: %s", reply.errorString())
-                self._status.setText("無法連線更新目錄；目前顯示上次快取的模型清單。")
+                self._status.setText(self._t("Could not reach the catalogue; showing the last cached list."))
         reply.deleteLater()
 
     def _load_cached_catalog(self) -> None:
@@ -436,13 +452,13 @@ class ModelCenterDialog(QtWidgets.QDialog):
             if query and query not in model.name.casefold():
                 continue
             filepath = self._download_dir / model.filename
-            label = _TIER_NAME[model.tier]
+            label = self._t(_TIER_NAME[model.tier])
             if filepath.is_file():
-                fit = "已下載" + (" · 目前使用" if str(filepath) == str(self._settings.value("engine_model", "")) else "")
+                fit = self._t("Downloaded") + (" · " + self._t("In use") if str(filepath) == str(self._settings.value("engine_model", "")) else "")
             elif _TIER_ORDER[model.tier] <= suggested_order:
-                fit = "建議" if model.tier == recommended else f"可用 · {label}"
+                fit = self._t("Recommended") if model.tier == recommended else self._t("Available · {tier}", tier=label)
             else:
-                fit = f"較吃資源 · {label}"
+                fit = self._t("Resource intensive · {tier}", tier=label)
             item = QtWidgets.QTreeWidgetItem((model.name, model.rating, model.uploaded_at, fit))
             item.setData(0, MODEL_ROLE, model)
             self._models.addTopLevelItem(item)
@@ -464,25 +480,25 @@ class ModelCenterDialog(QtWidgets.QDialog):
             return
         model_path = self._download_dir / self._selected.filename
         current_path = str(self._settings.value("engine_model", ""))
-        classification = _TIER_NAME[self._selected.tier]
+        classification = self._t(_TIER_NAME[self._selected.tier])
         tier_ok = _TIER_ORDER[self._selected.tier] <= _TIER_ORDER[recommend_tier(self._profile)]
-        cpu_state = "RAM 充足" if self._profile.available_ram_gib >= _tier_min_ram(self._selected.tier) else "RAM 可能不足"
+        cpu_state = self._t("RAM sufficient" if self._profile.available_ram_gib >= _tier_min_ram(self._selected.tier) else "RAM may be insufficient")
         gpu_state = ""
         if self._profile.gpu_name:
-            gpu_state = "；" + ("VRAM 充足" if self._profile.gpu_available_gib >= _tier_min_vram(self._selected.tier) else "VRAM 可能不足")
-        recommendation = "符合目前建議" if tier_ok else "高於目前建議，可能需要降低搜尋快取"
-        installed = f"<br>本機檔案：{model_path}" if model_path.is_file() else ""
-        active = "<br><b>目前 KataGo 使用的模型</b>" if str(model_path) == current_path else ""
+            gpu_state = "; " + self._t("VRAM sufficient" if self._profile.gpu_available_gib >= _tier_min_vram(self._selected.tier) else "VRAM may be insufficient")
+        recommendation = self._t("Meets current recommendation" if tier_ok else "Above current recommendation; reduce search cache if needed")
+        installed = f"<br>{self._t('Downloaded file: {path}', path=model_path)}" if model_path.is_file() else ""
+        active = f"<br><b>{self._t('Current KataGo model')}</b>" if str(model_path) == current_path else ""
         self._details.setText(
             f"<b>{self._selected.name}</b> · {classification} · {recommendation}<br>"
-            f"{cpu_state}{gpu_state}<br>評分：{self._selected.rating or '尚無評分'} · 上傳：{self._selected.uploaded_at}"
+            f"{cpu_state}{gpu_state}<br>{self._t('Elo rating')}：{self._selected.rating or '—'} · {self._t('Upload date')}：{self._selected.uploaded_at}"
             f"{installed}{active}"
         )
-        self._download_button.setText("已下載 · 設為目前模型" if model_path.is_file() else "下載並設為目前模型")
-        self._download_only_button.setText("重新下載" if model_path.is_file() else "只下載")
+        self._download_button.setText(self._t("Downloaded · set as current model" if model_path.is_file() else "Download and set as current model"))
+        self._download_only_button.setText(self._t("Download again" if model_path.is_file() else "Download only"))
 
     def _choose_download_folder(self) -> None:
-        folder = QtWidgets.QFileDialog.getExistingDirectory(self, "模型下載位置", str(self._download_dir))
+        folder = QtWidgets.QFileDialog.getExistingDirectory(self, self._t("Choose folder…"), str(self._download_dir))
         if folder:
             self._download_dir = Path(folder)
             self._settings.setValue("model-center/download-dir", folder)
@@ -493,7 +509,7 @@ class ModelCenterDialog(QtWidgets.QDialog):
 
     def _download_or_use_selected(self) -> None:
         if self._selected is None:
-            self._status.setText("請先從清單選擇模型。")
+            self._status.setText(self._t("Choose a model first."))
             return
         existing = self._download_dir / self._selected.filename
         if existing.is_file():
@@ -503,7 +519,7 @@ class ModelCenterDialog(QtWidgets.QDialog):
 
     def _begin_download(self, use_when_done: bool) -> None:
         if self._selected is None:
-            self._status.setText("請先從清單選擇模型。")
+            self._status.setText(self._t("Choose a model first."))
             return
         self._download_use_when_done = use_when_done
         self._download_dir.mkdir(parents=True, exist_ok=True)
@@ -517,7 +533,7 @@ class ModelCenterDialog(QtWidgets.QDialog):
         self._probe_reply = self._manager.head(request)
         self._probe_reply.finished.connect(self._probe_finished)
         self._set_busy(True)
-        self._status.setText("正在確認下載大小與磁碟空間…")
+        self._status.setText(self._t("Fetching download size and checking disk space…"))
 
     def _probe_finished(self) -> None:
         reply = self._probe_reply
@@ -525,7 +541,7 @@ class ModelCenterDialog(QtWidgets.QDialog):
         if reply is None:
             return
         if reply.error() != QtNetwork.QNetworkReply.NetworkError.NoError:
-            self._status.setText(f"無法取得檔案資訊：{reply.errorString()}")
+            self._status.setText(self._t("Could not fetch file information: {error}", error=reply.errorString()))
             self._set_busy(False)
             reply.deleteLater()
             return
@@ -537,14 +553,14 @@ class ModelCenterDialog(QtWidgets.QDialog):
         storage = QtCore.QStorageInfo(str(self._download_dir))
         storage.refresh()
         if self._expected_bytes and storage.bytesAvailable() < int(self._expected_bytes * 1.05):
-            self._status.setText("磁碟空間不足；請選擇空間更大的下載位置。")
+            self._status.setText(self._t("Not enough disk space; choose another location."))
             self._set_busy(False)
             reply.deleteLater()
             return
         target = self._download_dir / self._selected.filename
         self._save_file = QtCore.QSaveFile(str(target))
         if not self._save_file.open(QtCore.QIODevice.OpenModeFlag.WriteOnly):
-            self._status.setText(f"無法建立模型檔案：{self._save_file.errorString()}")
+            self._status.setText(self._t("Could not create model file: {error}", error=self._save_file.errorString()))
             self._save_file = None
             self._set_busy(False)
             reply.deleteLater()
@@ -562,7 +578,7 @@ class ModelCenterDialog(QtWidgets.QDialog):
         self._download_reply.readyRead.connect(self._write_download_chunk)
         self._download_reply.downloadProgress.connect(self._download_progress)
         self._download_reply.finished.connect(self._download_finished)
-        self._status.setText("開始從 KataGo 官方儲存站下載模型…")
+        self._status.setText(self._t("Downloading from the official KataGo model host…"))
         reply.deleteLater()
 
     def _write_download_chunk(self) -> None:
@@ -572,7 +588,7 @@ class ModelCenterDialog(QtWidgets.QDialog):
         if chunk:
             written = self._save_file.write(chunk)
             if written != len(chunk):
-                self._status.setText(f"寫入失敗：{self._save_file.errorString()}")
+                self._status.setText(self._t("Write failed: {error}", error=self._save_file.errorString()))
                 self._download_reply.abort()
             else:
                 self._download_bytes_written += written
@@ -581,9 +597,9 @@ class ModelCenterDialog(QtWidgets.QDialog):
         denominator = total or self._expected_bytes
         if denominator > 0:
             self._progress.setValue(min(100, int(received * 100 / denominator)))
-            self._status.setText(f"已下載 {received / 1024**2:.1f} / {denominator / 1024**2:.1f} MiB")
+            self._status.setText(self._t("Downloaded {received:.1f} / {total:.1f} MiB", received=received / 1024**2, total=denominator / 1024**2))
         else:
-            self._status.setText(f"已下載 {received / 1024**2:.1f} MiB")
+            self._status.setText(self._t("Downloaded {received:.1f} MiB", received=received / 1024**2))
 
     def _download_finished(self) -> None:
         reply = self._download_reply
@@ -601,27 +617,27 @@ class ModelCenterDialog(QtWidgets.QDialog):
                 self._save_file.cancelWriting()
             self._save_file = None
             self._set_busy(False)
-            self._status.setText(f"下載未完成，暫存檔已清除：{error_text}")
+            self._status.setText(self._t("Download incomplete; the temporary file was removed: {error}", error=error_text))
             return
         if self._expected_bytes and received != self._expected_bytes:
             if self._save_file:
                 self._save_file.cancelWriting()
             self._save_file = None
             self._set_busy(False)
-            self._status.setText(f"下載大小不符（{received} / {self._expected_bytes} bytes），檔案未安裝。")
+            self._status.setText(self._t("Download size mismatch ({received} / {expected} bytes); file was not installed.", received=received, expected=self._expected_bytes))
             return
         if self._save_file is None or not self._save_file.commit():
-            reason = self._save_file.errorString() if self._save_file else "未知寫入錯誤"
+            reason = self._save_file.errorString() if self._save_file else "Unknown write error"
             if self._save_file:
                 self._save_file.cancelWriting()
             self._save_file = None
             self._set_busy(False)
-            self._status.setText(f"模型檔無法完成保存：{reason}")
+            self._status.setText(self._t("Could not save the model file: {error}", error=reason))
             return
         path = self._download_dir / self._selected.filename
         self._save_file = None
         self._set_busy(False)
-        self._status.setText(f"模型下載完成：{path}")
+        self._status.setText(self._t("Model download complete: {path}", path=path))
         self._populate_catalog()
         if self._download_use_when_done:
             self._use_model(path)
@@ -632,7 +648,7 @@ class ModelCenterDialog(QtWidgets.QDialog):
         if self._probe_reply is not None:
             self._probe_reply.abort()
         if self._download_reply is not None:
-            self._status.setText("正在取消並清除未完成的模型檔…")
+            self._status.setText(self._t("Cancelling and removing the incomplete model file…"))
             self._download_reply.abort()
         elif self._probe_reply is None:
             self._set_busy(False)
@@ -648,9 +664,7 @@ class ModelCenterDialog(QtWidgets.QDialog):
         self._populate_catalog()
         if self._models.currentItem():
             self._selection_changed(self._models.currentItem(), None)
-        self._status.setText(
-            f"已設為目前模型。若尚未設定 KataGo 執行檔，請在 Preferences 選取它。"
-        )
+        self._status.setText(self._t("Model selected. Set the KataGo executable in Preferences, then start analysis."))
         self.modelSelected.emit(str(path))
 
     def closeEvent(self, event) -> None:

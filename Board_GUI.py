@@ -6,6 +6,7 @@ from PySide6 import QtGui, QtCore, QtWidgets, QtMultimedia
 from PySide6.QtWidgets import QApplication, QMainWindow
 from gameManager import *
 from nightygo.audio import StonePlacementSound
+from nightygo.preview import stone_preview
 
 
 # Preset
@@ -2590,7 +2591,23 @@ class Chess(QtWidgets.QLabel):
 
         self.centralwidget = centralwidget
         self.recoveryStones = []
+        self.setMouseTracking(True)
 
+
+    def enterEvent(self, event):
+        super().enterEvent(event)
+        column = int((self.x() - 7) / 50)
+        row = int((self.y() - 57) / 50)
+        if 0 <= row < 19 and 0 <= column < 19 and goBoard[row][column] == 0:
+            color = 1 if get_turns() % 2 == 0 else 2
+            self.setPixmap(stone_preview(color))
+
+    def leaveEvent(self, event):
+        column = int((self.x() - 7) / 50)
+        row = int((self.y() - 57) / 50)
+        if 0 <= row < 19 and 0 <= column < 19 and goBoard[row][column] == 0:
+            self.clear()
+        super().leaveEvent(event)
 
     def mousePressEvent(self, event):
         if event.button() == QtCore.Qt.MouseButton.LeftButton:

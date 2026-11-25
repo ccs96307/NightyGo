@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'web/**'
+      - 'scripts/build-web-engine.sh'
       - '.github/workflows/deploy-web.yml'
   workflow_dispatch:
 
@@ -26,6 +27,30 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Install Eigen headers
+        run: sudo apt-get update && sudo apt-get install -y libeigen3-dev
+      - name: Install Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 7.0.1
+      - name: Checkout pinned KataGo WebGPU engine source
+        uses: actions/checkout@v4
+        with:
+          repository: saigo-online/katago-webgpu
+          ref: d5ad1c0423dba989c60a2f06b1848e7eec2b5941
+          path: vendor/katago-webgpu
+      - name: Build browser AI engine
+        env:
+          KATAGO_WEBGPU_DIR: vendor/katago-webgpu
+        run: bash scripts/build-web-engine.sh
+      - name: Smoke-test real KataGo model inference
+        working-directory: vendor/katago-webgpu
+        run: node web/test-eval.mjs cpp/tests/models/g170-b6c96-s175395328-d26788732.bin.gz
+      - name: Verify web client and SGF unit tests
+        run: |
+          node --check web/app.js
+          node --check web/engine-worker.js
+          node --test web/tests/*.test.js
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Upload web app

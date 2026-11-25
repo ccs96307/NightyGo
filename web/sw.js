@@ -1,6 +1,6 @@
-const CACHE = 'nightygo-web-v5';
+const CACHE = 'nightygo-web-v6';
 const ROOT = new URL('./', self.location.href);
-const FILES = ['./', './index.html', './styles.css', './app.js', './manifest.webmanifest', './icon.svg',
+const FILES = ['./', './index.html', './styles.css', './app.js', './sgf-core.js', './engine-worker.js', './assets/engine/kataeval.js', './assets/engine/kataeval.wasm', './manifest.webmanifest', './icon.svg',
   './assets/sounds/go_stone_01.wav', './assets/sounds/go_stone_02.wav', './assets/sounds/go_stone_03.wav',
   './assets/sounds/go_stone_04.wav', './assets/sounds/go_stone_05.wav', './assets/sounds/capture_single.wav',
   './assets/sounds/capture_small_group.wav', './assets/sounds/capture_group.wav', './assets/sounds/capture_large_group.wav'];

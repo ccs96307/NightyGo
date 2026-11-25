@@ -1,6 +1,6 @@
 # NightyGo web edition
 
-A no-install browser prototype built with plain HTML, CSS, and JavaScript. There is no Node, Python, npm, or build dependency. It can be served as a static GitHub Pages site.
+NightyGo Web is an install-free Go study studio built with HTML, CSS, JavaScript, and a KataGo WebAssembly engine. AI models are downloaded by the user and stored in browser IndexedDB; inference runs locally in the browser.
 
 ## Run locally
 
@@ -15,16 +15,22 @@ Open `http://localhost:8000`. WebGPU and offline caching require HTTPS or localh
 ## Implemented
 
 - 9×9, 13×13, and 19×19 games with move preview, captures, suicide checks, simple ko, pass, and two-pass ending.
-- Undo, redo, previous/next navigation, and a clickable SGF variation tree that keeps continuations on a line and forks at variations.
-- SGF FF[4] import and export with variation/property retention. SGF collections currently open their first game only.
+- Undo, redo, navigation, and a clickable SGF variation tree that forks at variations.
+- FF[4] SGF collection import/export, game selection, variation trees, and node properties.
 - Game metadata and current-node comments.
 - Browser-local game library, search, automatic recovery, and offline asset caching.
-- Light/dark theme, five placement sounds, four capture sound bands, font size, board/stone materials, and motion preferences.
-- Language selector for Traditional and Simplified Chinese, English, Japanese, and Korean. A few secondary status messages may still fall back to English.
-- WebGPU capability detection and a browser memory hint where available.
+- Light/dark theme, placement and capture sounds, font size, board/stone materials, and motion preferences.
+- Traditional and Simplified Chinese, English, Japanese, and Korean.
+- KataGo WASM model loading, WebGPU/CPU inference, candidate moves, win rate/score lead, ownership overlay, MCTS moves, and main-line review.
+- AI Model Config with official light, balanced, and latest model download links plus an approximate memory recommendation. Download then import the model file; models remain local.
+- WebGPU/device detection, PWA offline cache, and SGF parser unit tests.
 
-## Not implemented yet
+## Limits
 
-WebGPU detection does not execute an AI model. The browser edition does not yet bundle or connect KataGo WebGPU/WASM, download models, show candidate moves/win-rate/ownership, or review a full game. Shape and label annotations can be edited; line/arrow creation, multi-game SGF selection, library tags, and the full desktop AI/model center are not ported. Game library data lives in this browser's local storage; export SGF backups before clearing site data.
+The browser engine uses single-threaded MCTS, so it is slower than desktop KataGo's multithreaded search. WebGPU depends on the browser, GPU driver, and secure context (HTTPS/localhost); otherwise CPU inference may be slow. Models must be downloaded from the official page and imported using the file picker because the model host does not allow cross-origin reads. Memory recommendations are approximate. AI search supports standard handicap positions with two or more initial black stones; it does not support AW/AE setup positions or later edited boards. Full-game review analyzes the main line and is capped at 250 moves. Browser data is local; export SGF backups before clearing site data.
+
+Run tests with `node --test web/tests/*.test.js`. Rebuild the browser engine with `EMSDK_DIR=/path/to/emsdk bash scripts/build-web-engine.sh`; this requires Emscripten 7.0.1, Eigen 3, and network access for the WebGPU build port. The GitHub Pages workflow builds and deploys the static app.
+
+The engine code is MIT licensed; see [`assets/engine/UPSTREAM-LICENSE`](assets/engine/UPSTREAM-LICENSE). KataGo network files have their own model licenses; review the official model page before use.
 
 Placement and capture sound files are shared with the desktop app; their attribution and licensing notes are in [`assets/sounds/SOURCES.md`](assets/sounds/SOURCES.md).

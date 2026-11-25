@@ -2,8 +2,10 @@
 
 English | [繁體中文](README.zh-TW.md)
 
-A Go game record editor built with PySide6. It supports move previews, placement
-sound, undo, SGF import/export, and a clickable game tree for browsing variations.
+A PySide6 Go play, record-editing, and AI-review studio. It supports SGF
+variations, board annotations, a local game library, KataGo live analysis and
+full-game review. Choose a dark or warm-light theme, or preview the Qt Quick
+board workspace.
 
 ## Development setup
 
@@ -24,8 +26,13 @@ Application logs include timestamps, severity levels, and module names. Set
 - Choose wood, starfield, or night-sky board surfaces and traditional, starfield, or moonstone stones.
 - Undo moves and click any node in the game tree to jump to that position or browse variations.
 - Import and export SGF collections while preserving annotations and alternate lines.
+- Edit game metadata, comments, main lines and variations, plus triangle, square, circle, cross, label, line and arrow markup.
+- Search recent records by players, event, result and custom tags; unsaved games receive recovery snapshots.
+- Configure a local KataGo executable for asynchronous candidate moves, win rate, score lead and ownership; review a full main line with a win-rate graph and jump links for major swings.
+- Preview the Qt Quick board from **View → QML workspace preview**; choose a dark or warm-light theme, font size and animated sky preference in Settings.
 
 Use **File → Open SGF** to load a record and **File → Save SGF** to save it.
-Use **Settings → Preferences** to preview a Go-stone sound, adjust the font size,
-or choose the board and stone materials. Preferences are remembered. Both side
-panels have larger expand/restore and close controls in their title bars.
+AI analysis requires a local KataGo executable and compatible model. Set its
+path and GTP arguments in **Settings → Preferences**; NightyGo does not download
+or bundle model weights. Preferences also remember the placement sound, font
+size, theme, animation and board/stone materials.

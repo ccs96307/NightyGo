@@ -1,14 +1,12 @@
-# Placement sound sources
+# Go-stone placement recording
 
-The following sounds are included under CC0 1.0. Each is a short WAV effect
-from Mildly Useless and may be used, modified, and redistributed without
-attribution. The source pages describe the sounds as synthesized from code.
+The five bundled WAV choices are short clips from **GoStoneSounds.ogg** by
+billhails2 on Freesound:
 
-| Asset | Source | Description |
-| --- | --- | --- |
-| `piece_place.wav` | <https://mildlyuseless.com/res/game-piece-place> | Wooden-bodied board-game piece landing click |
-| `soft_click.wav` | <https://mildlyuseless.com/res/> | Soft UI click |
-| `menu_select.wav` | <https://mildlyuseless.com/res/> | Short menu selection click |
-| `mouse_click.wav` | <https://mildlyuseless.com/res/> | Mouse press and release click |
+<https://freesound.org/people/billhails2/sounds/588317/>
 
-The original `stone_placed.wav` is retained as a separate built-in option.
+The field recording contains five Yunzi Go stones being placed on two board
+types: three hits on a tabletop board with wooden legs and two on a thin
+19×19 shin-kaya board. Freesound marks the recording CC0 1.0. The clips in
+this directory were cut from its high-quality Ogg preview and converted to
+mono 44.1 kHz PCM WAV for low-latency playback.

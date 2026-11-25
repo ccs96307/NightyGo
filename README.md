@@ -17,10 +17,11 @@ uv run python -m nightygo
 ## Features
 
 - Play and pass on a 19×19 board, with captures, suicide prevention, and simple ko.
-- Preview a translucent stone before placing it and choose from several placement sounds.
+- Preview a translucent stone before placing it and choose among five real Go-stone recordings.
 - Undo moves and click any node in the game tree to jump to that position or browse variations.
 - Import and export SGF collections while preserving annotations and alternate lines.
 
 Use **File → Open SGF** to load a record and **File → Save SGF** to save it.
-Choose **Settings → Font Size** to adjust the application text size; the default
-is 14 pt and the selected size is remembered.
+Use **Settings → Preferences** to select and preview a Go-stone placement sound
+or change the application font size. The default size is 14 pt, and preferences
+are remembered.

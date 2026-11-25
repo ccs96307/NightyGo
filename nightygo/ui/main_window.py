@@ -18,7 +18,8 @@ class MainWindow(QtWidgets.QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self._settings = QtCore.QSettings("NightyGo", "NightyGo")
-        self._set_font_size(int(self._settings.value("font_size", 14)))
+        self._font_size = int(self._settings.value("font_size", 14))
+        self._set_font_size(self._font_size)
         self._collection = SgfCollection()
         self._session = SgfGameSession.new_game()
         self._collection.games.append(self._session.root)
@@ -41,13 +42,10 @@ class MainWindow(QtWidgets.QMainWindow):
         pass_button = QtWidgets.QPushButton("Pass")
         pass_button.clicked.connect(self._pass_turn)
         self._capture_label = QtWidgets.QLabel()
-        self._sound_selector = QtWidgets.QComboBox()
-        self._sound_selector.addItems(StonePlacementSound.available_sounds())
-        saved_sound = self._settings.value("placement_sound", "NightyGo original")
-        if saved_sound in StonePlacementSound.available_sounds():
-            self._sound_selector.setCurrentText(saved_sound)
-        self._sound_selector.currentTextChanged.connect(self._select_sound)
-        self._stone_sound.set_sound(self._sound_selector.currentText())
+        saved_sound = self._settings.value(
+            "placement_sound", StonePlacementSound.available_sounds()[0]
+        )
+        self._stone_sound.set_sound(saved_sound)
 
         self._game_tree = GameTreeView(self)
         self._game_tree.node_selected.connect(self._tree_node_selected)
@@ -61,8 +59,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.addAction(undo_action)
         self._create_file_menu()
         settings_menu = self.menuBar().addMenu("Settings")
-        font_action = settings_menu.addAction("Font Size…")
-        font_action.triggered.connect(self._choose_font_size)
+        preferences_action = settings_menu.addAction("Preferences…")
+        preferences_action.triggered.connect(self._open_settings)
 
         controls = QtWidgets.QHBoxLayout()
         controls.addWidget(self._previous_button)
@@ -70,8 +68,6 @@ class MainWindow(QtWidgets.QMainWindow):
         controls.addWidget(self._variations)
         controls.addStretch(1)
         controls.addWidget(self._capture_label)
-        controls.addWidget(QtWidgets.QLabel("Placement sound"))
-        controls.addWidget(self._sound_selector)
         controls.addWidget(self._undo_button)
         controls.addWidget(pass_button)
         controls_widget = QtWidgets.QWidget(self)
@@ -102,6 +98,7 @@ class MainWindow(QtWidgets.QMainWindow):
             [100],
             QtCore.Qt.Orientation.Vertical,
         )
+        self._set_font_size(self._font_size)
         self._refresh()
 
     def _create_file_menu(self) -> None:
@@ -218,19 +215,37 @@ class MainWindow(QtWidgets.QMainWindow):
     def _show_error(self, title: str, error: Exception) -> None:
         QtWidgets.QMessageBox.critical(self, title, str(error))
 
-    def _select_sound(self, name: str) -> None:
-        self._stone_sound.set_sound(name)
-        self._settings.setValue("placement_sound", name)
-
-    def _choose_font_size(self) -> None:
+    def _open_settings(self) -> None:
         dialog = QtWidgets.QDialog(self)
-        dialog.setWindowTitle("Font Size")
-        size_selector = QtWidgets.QSpinBox(dialog)
-        size_selector.setRange(10, 30)
-        size_selector.setSuffix(" pt")
-        size_selector.setValue(int(self._settings.value("font_size", 14)))
+        dialog.setAttribute(QtCore.Qt.WidgetAttribute.WA_DeleteOnClose)
+        dialog.setWindowTitle("NightyGo Preferences")
+        font_size = QtWidgets.QSpinBox(dialog)
+        font_size.setRange(10, 30)
+        font_size.setSuffix(" pt")
+        font_size.setValue(self._font_size)
+
+        sound_selector = QtWidgets.QComboBox(dialog)
+        sound_selector.addItems(StonePlacementSound.available_sounds())
+        saved_sound = self._settings.value(
+            "placement_sound", StonePlacementSound.available_sounds()[0]
+        )
+        if saved_sound in StonePlacementSound.available_sounds():
+            sound_selector.setCurrentText(saved_sound)
+        preview_button = QtWidgets.QPushButton("Preview", dialog)
+        preview_button.clicked.connect(
+            lambda: self._stone_sound.play(sound_selector.currentText())
+        )
+        sound_row = QtWidgets.QHBoxLayout()
+        sound_row.addWidget(sound_selector, 1)
+        sound_row.addWidget(preview_button)
+
         form = QtWidgets.QFormLayout()
-        form.addRow("Application font size", size_selector)
+        form.addRow("Application font size", font_size)
+        form.addRow("Go stone placement sound", sound_row)
+        source_hint = QtWidgets.QLabel(
+            "Five real Go-stone recordings from two board types."
+        )
+        source_hint.setWordWrap(True)
         buttons = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.StandardButton.Ok
             | QtWidgets.QDialogButtonBox.StandardButton.Cancel,
@@ -240,20 +255,31 @@ class MainWindow(QtWidgets.QMainWindow):
         buttons.rejected.connect(dialog.reject)
         layout = QtWidgets.QVBoxLayout(dialog)
         layout.addLayout(form)
+        layout.addWidget(source_hint)
         layout.addWidget(buttons)
-        if dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
-            size = size_selector.value()
-            self._settings.setValue("font_size", size)
-            self._set_font_size(size)
-
-    @staticmethod
-    def _set_font_size(size: int) -> None:
-        app = QtWidgets.QApplication.instance()
-        if app is None:
+        if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
             return
-        font = app.font()
+
+        size = font_size.value()
+        selected_sound = sound_selector.currentText()
+        self._settings.setValue("font_size", size)
+        self._settings.setValue("placement_sound", selected_sound)
+        self._stone_sound.set_sound(selected_sound)
+        self._set_font_size(size)
+
+    def _set_font_size(self, size: int) -> None:
+        self._font_size = size
+        font = QtWidgets.QApplication.font()
         font.setPointSize(size)
-        app.setFont(font)
+        app = QtWidgets.QApplication.instance()
+        if app is not None:
+            app.setFont(font)
+        self.setFont(font)
+        for widget in self.findChildren(QtWidgets.QWidget):
+            widget.setFont(font)
+        game_tree = getattr(self, "_game_tree", None)
+        if game_tree is not None:
+            game_tree.set_font_size(size)
 
     def _refresh_navigation(self, *_args) -> None:
         self._next_button.setEnabled(self._session.can_advance)

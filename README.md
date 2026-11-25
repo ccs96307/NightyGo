@@ -1,5 +1,7 @@
 # NightyGo
 
+The browser edition prototype is in [`web/README.md`](web/README.zh-TW.md). It runs without installing the desktop app; browser AI inference is not integrated yet.
+
 English | [繁體中文](README.zh-TW.md)
 
 A PySide6 Go play, record-editing, and AI-review studio. It supports SGF

@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#090d17" />
+    <meta name="description" content="NightyGo — browser-based Go study studio" />
+    <title>NightyGo · Go Study Studio</title>
+    <link rel="icon" href="icon.svg" type="image/svg+xml" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="ambient ambient-one"></div><div class="ambient ambient-two"></div>
+    <header class="topbar">
+      <a class="brand" href="#" aria-label="NightyGo home"><span class="brand-mark">N<span>·</span></span><span>NIGHTYGO<small>GO · STUDY STUDIO</small></span></a>
+      <div class="top-actions">
+        <span class="connection"><i></i><span data-i18n="browserReady">Browser ready</span></span>
+        <select id="language" aria-label="Language"><option value="zh-Hant">繁體中文</option><option value="zh-Hans">简体中文</option><option value="en">English</option><option value="ja">日本語</option><option value="ko">한국어</option></select>
+        <button class="icon-button" id="settings-open" title="Settings" aria-label="Settings">⚙</button>
+      </div>
+    </header>
+
+    <main class="app-shell">
+      <section class="hero-row">
+        <div><div class="eyebrow" data-i18n="workbench">YOUR GO WORKBENCH</div><h1 data-i18n="title">讓每一步，都值得推敲。</h1><p data-i18n="subtitle">對弈、整理棋譜，或從新的變化開始研究。</p></div>
+        <div class="hero-actions"><button class="button button-quiet" id="new-game">＋ <span data-i18n="newGame">新棋局</span></button><button class="button button-primary" id="import-button">↥ <span data-i18n="openSgf">開啟 SGF</span></button><input id="file-input" type="file" accept=".sgf,application/x-go-sgf,text/plain" hidden /></div>
+      </section>
+
+      <section class="workspace">
+        <div class="board-column">
+          <div class="board-card surface">
+            <div class="board-head"><div class="game-title"><div class="eyebrow" data-i18n="currentGame">CURRENT GAME</div><h2 id="game-name">Untitled game</h2><div class="game-meta" id="game-meta">19 × 19 <span>·</span> <span data-i18n="unsaved">未儲存</span></div></div><div class="turn-pill" id="turn-pill"><span class="stone-chip black"></span><span id="turn-label">黑棋下</span></div></div>
+            <div class="board-wrap" id="board-wrap"><canvas id="go-board" aria-label="Go board" tabindex="0"></canvas><div class="board-pulse" aria-hidden="true"></div></div>
+            <div class="board-footer"><div class="capture-stat"><span class="stone-chip black"></span><span data-i18n="blackCaptured">黑方提子</span><b id="black-captures">0</b></div><div class="move-stat"><span data-i18n="move">手數</span><b id="move-count">0</b></div><div class="capture-stat"><span class="stone-chip white"></span><span data-i18n="whiteCaptured">白方提子</span><b id="white-captures">0</b></div></div>
+          </div>
+          <div class="toolbar surface">
+            <div class="nav-group"><button class="tool-button" id="undo" title="Undo">↶ <span data-i18n="undo">悔棋</span></button><button class="tool-button" id="redo" title="Redo">↷ <span data-i18n="redo">重做</span></button></div><div class="nav-group nav-center"><button class="round-button" id="first" title="First">|‹</button><button class="round-button" id="previous" title="Previous">‹</button><span id="move-position">0 / 0</span><button class="round-button accent" id="next" title="Next">›</button><button class="round-button" id="last" title="Last">›|</button></div><button class="tool-button pass-button" id="pass">◉ <span data-i18n="pass">虛手</span></button>
+          </div>
+          <div class="markup-bar surface"><label for="markup-tool" data-i18n="markup">棋盤標記</label><select id="markup-tool"><option value="none" data-i18n="noMarkup">無</option><option value="TR" data-i18n="triangle">三角形</option><option value="SQ" data-i18n="square">方形</option><option value="CR" data-i18n="circle">圓形</option><option value="MA" data-i18n="cross">叉號</option><option value="LB" data-i18n="label">標籤</option></select><input id="markup-label" value="A" maxlength="3" aria-label="Label text" /></div>
+        </div>
+
+        <aside class="side-column">
+          <section class="panel surface tree-panel"><div class="panel-heading"><div><div class="eyebrow" data-i18n="navigation">NAVIGATION</div><h2 data-i18n="gameTree">棋譜樹</h2></div><span class="count-badge" id="tree-count">0</span></div><div class="tree-toolbar"><button id="main-line" class="small-button" data-i18n="mainLine">主線</button><button id="collapse-tree" class="small-button" data-i18n="fitTree">適配</button><span class="muted" data-i18n="branchOnVariation">只在分支處分岔</span></div><div class="tree-scroll" id="tree-scroll"><svg id="game-tree" role="tree" aria-label="Game tree"></svg></div><div class="tree-legend"><span><i class="legend-dot black"></i><span data-i18n="black">黑</span></span><span><i class="legend-dot white"></i><span data-i18n="white">白</span></span><span id="variation-count">0 <span data-i18n="variations">變化</span></span></div></section>
+          <section class="panel surface analysis-panel"><div class="panel-heading"><div><div class="eyebrow" data-i18n="engine">ENGINE</div><h2 data-i18n="aiStudio">AI 研究室</h2></div><span class="status-tag" id="gpu-status">檢查 GPU…</span></div><div class="ai-empty" id="ai-empty"><div class="ai-orb">✳</div><strong data-i18n="browserAiTitle">瀏覽器 AI 引擎</strong><p data-i18n="browserAiBody">確認 WebGPU 與可用記憶體。AI 引擎尚未連接，避免顯示虛構分析。</p><button id="check-gpu" class="small-button" data-i18n="checkGpu">檢查 WebGPU</button></div><div class="analysis-results" id="analysis-results" hidden><div class="metric-row"><span data-i18n="visits">搜尋次數</span><b id="visits">—</b></div><div class="metric-row"><span data-i18n="winrate">勝率</span><b id="winrate">—</b></div><div class="metric-row"><span data-i18n="scoreLead">目差</span><b id="score-lead">—</b></div><p class="muted" data-i18n="engineNotBundled">本次尚未整合可執行的 KataGo WebGPU/WASM 引擎，因此不提供假候選著。</p></div><button class="button button-quiet full-width" id="review-game" disabled>◷ <span data-i18n="review">整盤覆盤</span><span class="soon" data-i18n="notAvailable">尚未提供</span></button></section>
+          <section class="panel surface info-panel"><div class="panel-heading"><div><div class="eyebrow" data-i18n="details">GAME DETAILS</div><h2 data-i18n="gameInfo">棋局資訊</h2></div><button class="text-button" id="edit-info" data-i18n="edit">編輯</button></div><div class="info-grid"><div><span data-i18n="blackPlayer">黑方</span><b id="info-black">—</b></div><div><span data-i18n="whitePlayer">白方</span><b id="info-white">—</b></div><div><span data-i18n="event">賽事</span><b id="info-event">—</b></div><div><span data-i18n="result">結果</span><b id="info-result">—</b></div></div><div class="comment-box"><label for="comment" data-i18n="comment">目前節點註解</label><textarea id="comment" rows="2" placeholder="…"></textarea><button class="text-button" id="save-comment" data-i18n="saveComment">儲存註解</button></div></section>
+        </aside>
+      </section>
+
+      <section class="library-panel surface"><div class="panel-heading"><div><div class="eyebrow" data-i18n="libraryLabel">YOUR COLLECTION</div><h2 data-i18n="library">棋譜庫</h2></div><div class="library-actions"><input id="library-search" type="search" placeholder="搜尋棋手、賽事、結果…" /><button id="save-sgf" class="button button-primary">↓ <span data-i18n="saveSgf">匯出 SGF</span></button></div></div><div class="library-list" id="library-list"></div></section>
+      <footer><span>NightyGo · browser edition</span><span data-i18n="localData">棋局與偏好只儲存在此瀏覽器</span><button class="text-button" id="install-app" hidden data-i18n="installApp">安裝網頁應用程式</button></footer>
+    </main>
+
+    <dialog id="settings-dialog" class="modal"><form method="dialog"><div class="modal-head"><div><div class="eyebrow">PERSONALIZE</div><h2 data-i18n="settings">設定</h2></div><button class="icon-button close-modal" aria-label="Close">×</button></div><div class="setting-row"><label for="theme" data-i18n="theme">介面主題</label><select id="theme"><option value="dark" data-i18n="dark">深色</option><option value="light" data-i18n="light">淺色</option></select></div><div class="setting-row"><label for="board-material" data-i18n="boardMaterial">棋盤材質</label><select id="board-material"><option value="wood" data-i18n="classicWood">經典木紋</option><option value="starfield" data-i18n="starfield">星空</option><option value="night" data-i18n="nightSky">夜空</option></select></div><div class="setting-row"><label for="stone-material" data-i18n="stoneMaterial">棋子材質</label><select id="stone-material"><option value="classic" data-i18n="traditional">傳統</option><option value="star" data-i18n="starStones">星空棋子</option><option value="moon" data-i18n="moonstone">月岩</option></select></div><div class="setting-row"><label for="board-size" data-i18n="boardSize">棋盤尺寸</label><select id="board-size"><option>19</option><option>13</option><option>9</option></select></div><div class="setting-row"><label for="font-size" data-i18n="fontSize">字體大小</label><input id="font-size" type="range" min="13" max="20" value="15" /><output id="font-value">15 px</output></div><div class="setting-row"><label for="placement-sound" data-i18n="placementSound">落子音效</label><select id="placement-sound"><option value="01" data-i18n="sound1">木板落子 1</option><option value="02" data-i18n="sound2">木板落子 2</option><option value="03" data-i18n="sound3">木板落子 3</option><option value="04" data-i18n="sound4">木板落子 4</option><option value="05" data-i18n="sound5">木板落子 5</option><option value="off" data-i18n="off">關閉</option></select><button type="button" id="preview-sound" class="small-button" data-i18n="preview">試聽</button></div><div class="setting-row"><label for="motion" data-i18n="motion">動態背景</label><select id="motion"><option value="full" data-i18n="full">完整</option><option value="subtle" data-i18n="subtle">細緻</option><option value="off" data-i18n="off">關閉</option></select></div><div class="modal-actions"><button class="button button-quiet" value="cancel" data-i18n="cancel">取消</button><button class="button button-primary" id="save-settings" value="default" data-i18n="apply">套用</button></div></form></dialog>
+    <dialog id="info-dialog" class="modal"><form method="dialog"><div class="modal-head"><div><div class="eyebrow">SGF METADATA</div><h2 data-i18n="editGameInfo">編輯棋局資訊</h2></div><button class="icon-button close-modal" aria-label="Close">×</button></div><label class="form-field"><span data-i18n="blackPlayer">黑方</span><input id="edit-black" /></label><label class="form-field"><span data-i18n="whitePlayer">白方</span><input id="edit-white" /></label><label class="form-field"><span data-i18n="event">賽事</span><input id="edit-event" /></label><label class="form-field"><span data-i18n="result">結果</span><input id="edit-result" /></label><label class="form-field"><span data-i18n="komi">貼目</span><input id="edit-komi" /></label><div class="modal-actions"><button class="button button-quiet" value="cancel" data-i18n="cancel">取消</button><button class="button button-primary" id="apply-info" value="default" data-i18n="apply">套用</button></div></form></dialog>
+    <div id="toast" class="toast" role="status"></div>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

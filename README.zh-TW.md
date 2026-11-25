@@ -10,7 +10,7 @@
 
 ```bash
 uv sync --locked
-uv run python main.py
+uv run python -m nightygo
 ```
 
 ## 原始原型

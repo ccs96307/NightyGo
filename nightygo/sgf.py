@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from PySide6 import QtCore
+
 
 class SgfError(ValueError):
     """Raised when an SGF collection is malformed or unsupported."""
@@ -155,8 +157,17 @@ def read_sgf(path: str | Path) -> SgfCollection:
 
 
 def write_sgf(collection: SgfCollection, path: str | Path) -> None:
-    """Write an SGF collection as UTF-8."""
-    Path(path).write_text(serialize_sgf(collection), encoding="utf-8", newline="\n")
+    """Atomically save an SGF collection as UTF-8."""
+    save_file = QtCore.QSaveFile(str(Path(path)))
+    if not save_file.open(QtCore.QIODevice.OpenModeFlag.WriteOnly):
+        raise OSError(save_file.errorString())
+    payload = serialize_sgf(collection).encode("utf-8")
+    written = save_file.write(payload)
+    if written != len(payload):
+        save_file.cancelWriting()
+        raise OSError(save_file.errorString() or "Could not write the complete SGF file")
+    if not save_file.commit():
+        raise OSError(save_file.errorString())
 
 
 def _serialize_tree(root: SgfNode) -> str:

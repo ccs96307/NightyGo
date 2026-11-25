@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 import copy
 import sys
-from pathlib import Path
 from Board import Ui_MainWindow
 from PySide6 import QtGui, QtCore, QtWidgets, QtMultimedia
 from PySide6.QtWidgets import QApplication, QMainWindow
 from gameManager import *
+from nightygo.audio import StonePlacementSound
 
 
 # Preset
@@ -26,6 +26,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.setupUi(self)
         self.setWindowTitle('Nighty Go')
         self.statusBar().showMessage('歡迎使用 Nighty Go 記譜程式。')
+        self.stone_sound = StonePlacementSound(self)
 
         # Chess
         self.c01 = Chess(self.centralwidget)
@@ -2590,13 +2591,6 @@ class Chess(QtWidgets.QLabel):
         self.centralwidget = centralwidget
         self.recoveryStones = []
 
-        audio_path = Path(__file__).resolve().parent / "Audio" / "Go Clicked.mp3"
-        self.player = None
-        if audio_path.is_file():
-            self.player = QtMultimedia.QMediaPlayer(self)
-            self.audio_output = QtMultimedia.QAudioOutput(self)
-            self.player.setAudioOutput(self.audio_output)
-            self.player.setSource(QtCore.QUrl.fromLocalFile(str(audio_path)))
 
     def mousePressEvent(self, event):
         if event.button() == QtCore.Qt.MouseButton.LeftButton:
@@ -2654,8 +2648,7 @@ class Chess(QtWidgets.QLabel):
                         print('Turns:', turns)
                         set_turns(turns)
 
-                        if self.player is not None:
-                            self.player.play()
+                        MainWindow.stone_sound.play()
 
                         if self.color == 2:
                             blackPreviousBoard = copy.deepcopy(goBoard)

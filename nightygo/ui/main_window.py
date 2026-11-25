@@ -291,6 +291,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self._qml_workspace.rootContext().setContextProperty("uiTheme", self._ui_theme)
         self._qml_workspace.rootContext().setContextProperty("uiLanguage", self._language)
         self._qml_workspace.rootContext().setContextProperty("uiFontSize", self._font_size)
+        self._qml_workspace.rootContext().setContextProperty(
+            "boardMaterialName", self._settings.value("board_material", "Classic wood")
+        )
+        self._qml_workspace.rootContext().setContextProperty(
+            "stoneMaterialName", self._settings.value("stone_material", "Traditional")
+        )
+        self._qml_workspace.rootContext().setContextProperty("motionLevel", self._motion_level)
         self._qml_workspace.setResizeMode(QQuickWidget.ResizeMode.SizeRootObjectToView)
         self._qml_workspace.setSource(QtCore.QUrl.fromLocalFile(
             str(Path(__file__).resolve().parents[1] / "qml" / "BoardWorkspace.qml")
@@ -1020,6 +1027,14 @@ class MainWindow(QtWidgets.QMainWindow):
         QtWidgets.QMessageBox.critical(self, title, str(error))
 
     def _open_settings(self) -> None:
+        original = (
+            self._font_size,
+            self._ui_theme,
+            self._motion_level,
+            self._stone_sound.selected_sound,
+            str(self._settings.value("board_material", "Classic wood")),
+            str(self._settings.value("stone_material", "Traditional")),
+        )
         dialog = QtWidgets.QDialog(self)
         dialog.setWindowTitle(self._t("NightyGo Preferences"))
         font_size = QtWidgets.QSpinBox(dialog)
@@ -1070,6 +1085,11 @@ class MainWindow(QtWidgets.QMainWindow):
         form.addRow(self._t("Go stone placement sound"), sound_row)
         form.addRow(self._t("Board texture"), board_selector)
         form.addRow(self._t("Stone texture"), stone_selector)
+        preview_hint = QtWidgets.QLabel(
+            self._t("Changes preview immediately. OK saves them; Cancel restores the previous settings."),
+            dialog,
+        )
+        preview_hint.setWordWrap(True)
         source_hint = QtWidgets.QLabel(self._t("Five real Go-stone recordings from two board types."))
         source_hint.setWordWrap(True)
         buttons = QtWidgets.QDialogButtonBox(
@@ -1083,9 +1103,33 @@ class MainWindow(QtWidgets.QMainWindow):
         buttons.rejected.connect(dialog.reject)
         layout = QtWidgets.QVBoxLayout(dialog)
         layout.addLayout(form)
+        layout.addWidget(preview_hint)
         layout.addWidget(source_hint)
         layout.addWidget(buttons)
+
+        def apply_selection(*_args) -> None:
+            self._apply_preferences_preview(
+                font_size.value(),
+                theme_selector.currentData() or original[1],
+                str(motion_selector.currentData() or original[2]),
+                sound_selector.currentData() or original[3],
+                board_selector.currentData() or original[4],
+                stone_selector.currentData() or original[5],
+            )
+
+        for control, signal in (
+            (font_size, font_size.valueChanged),
+            (theme_selector, theme_selector.currentIndexChanged),
+            (motion_selector, motion_selector.currentIndexChanged),
+            (sound_selector, sound_selector.currentIndexChanged),
+            (board_selector, board_selector.currentIndexChanged),
+            (stone_selector, stone_selector.currentIndexChanged),
+        ):
+            signal.connect(apply_selection)
+        apply_selection()
+
         if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
+            self._apply_preferences_preview(*original)
             return
 
         size = font_size.value()
@@ -1101,13 +1145,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._settings.setValue("placement_sound", selected_sound)
         self._settings.setValue("board_material", selected_board)
         self._settings.setValue("stone_material", selected_stones)
-        self._stone_sound.set_sound(selected_sound)
-        self._board.set_board_material(selected_board)
-        self._motion_level = selected_motion
-        self._board.set_motion_level(selected_motion)
-        self._board.set_stone_material(selected_stones)
-        self._game_tree.set_stone_material(selected_stones)
-        self._game_tree.set_motion_level(selected_motion)
+        self._apply_preferences_preview(
+            size, theme, selected_motion, selected_sound, selected_board, selected_stones
+        )
         logger.info(
             "Preferences updated: font=%d pt, board=%s, stones=%s, motion=%s, sound=%s",
             size,
@@ -1116,9 +1156,30 @@ class MainWindow(QtWidgets.QMainWindow):
             selected_motion,
             selected_sound,
         )
+
+    def _apply_preferences_preview(
+        self,
+        size: int,
+        theme: str,
+        motion: str,
+        sound: str,
+        board_material: str,
+        stone_material: str,
+    ) -> None:
+        """Apply a live Preferences preview without persisting it."""
         self._set_font_size(size)
         self._apply_theme(theme)
+        self._motion_level = motion
+        self._stone_sound.set_sound(sound)
+        self._board.set_motion_level(motion)
+        self._board.set_board_material(board_material)
+        self._board.set_stone_material(stone_material)
+        self._game_tree.set_motion_level(motion)
+        self._game_tree.set_stone_material(stone_material)
         self._qml_workspace.rootContext().setContextProperty("uiTheme", theme)
+        self._qml_workspace.rootContext().setContextProperty("boardMaterialName", board_material)
+        self._qml_workspace.rootContext().setContextProperty("stoneMaterialName", stone_material)
+        self._qml_workspace.rootContext().setContextProperty("motionLevel", motion)
 
     def _open_model_center(self) -> None:
         dialog = ModelCenterDialog(self._settings, self)

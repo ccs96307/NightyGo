@@ -12,6 +12,20 @@ Rectangle {
     property var rows: controller ? controller.boardRows : []
     property int hoverX: -1
     property int hoverY: -1
+    property string boardTexture: boardMaterialName
+    property string stoneTexture: stoneMaterialName
+    property string motion: motionLevel
+    property real skyPhase: 0
+
+    Timer {
+        interval: root.motion === "full" ? 33 : 100
+        repeat: true
+        running: root.motion !== "off" && root.boardTexture !== "Classic wood"
+        onTriggered: {
+            root.skyPhase += root.motion === "subtle" ? 0.018 : 0.055
+            board.requestPaint()
+        }
+    }
 
     Rectangle {
         anchors.centerIn: parent
@@ -48,12 +62,40 @@ Rectangle {
             const span = side - margin * 2
             const step = span / (root.boardSize - 1)
             const wood = ctx.createLinearGradient(0, 0, side, side)
-            wood.addColorStop(0, "#e5bd7e")
-            wood.addColorStop(0.5, "#d8aa64")
-            wood.addColorStop(1, "#c89550")
+            if (root.boardTexture === "Starfield") {
+                wood.addColorStop(0, "#17153b")
+                wood.addColorStop(0.5, "#101c3b")
+                wood.addColorStop(1, "#080d21")
+            } else if (root.boardTexture === "Night sky") {
+                wood.addColorStop(0, "#263a61")
+                wood.addColorStop(0.5, "#172847")
+                wood.addColorStop(1, "#101a34")
+            } else {
+                wood.addColorStop(0, "#e5bd7e")
+                wood.addColorStop(0.5, "#d8aa64")
+                wood.addColorStop(1, "#c89550")
+            }
             ctx.fillStyle = wood
             ctx.fillRect(0, 0, side, side)
-            ctx.strokeStyle = "#47351f"
+            if (root.boardTexture !== "Classic wood") {
+                const glow = ctx.createRadialGradient(
+                    side * (0.5 + 0.22 * Math.cos(root.skyPhase)),
+                    side * (0.5 + 0.2 * Math.sin(root.skyPhase)),
+                    0, side * 0.5, side * 0.5, side * 0.58
+                )
+                glow.addColorStop(0, root.boardTexture === "Starfield" ? "rgba(102,75,220,0.34)" : "rgba(83,177,218,0.28)")
+                glow.addColorStop(1, "rgba(10,15,35,0)")
+                ctx.fillStyle = glow
+                ctx.fillRect(0, 0, side, side)
+                for (let i = 0; i < 180; ++i) {
+                    const x = ((i * 0.61803398875 + root.skyPhase * 0.006) % 1) * side
+                    const y = ((i * 0.75487766625 + 0.17) % 1) * side
+                    const alpha = 0.22 + 0.48 * (0.5 + 0.5 * Math.sin(root.skyPhase * 2 + i * 1.7))
+                    ctx.fillStyle = `rgba(232,240,255,${alpha})`
+                    ctx.beginPath(); ctx.arc(x, y, i % 13 === 0 ? 1.5 : 0.8, 0, Math.PI * 2); ctx.fill()
+                }
+            }
+            ctx.strokeStyle = root.boardTexture === "Classic wood" ? "#47351f" : "rgba(210,225,255,0.72)"
             ctx.lineWidth = Math.max(1, step * 0.025)
             for (let i = 0; i < root.boardSize; ++i) {
                 const p = margin + i * step
@@ -61,7 +103,7 @@ Rectangle {
                 ctx.beginPath(); ctx.moveTo(p, margin); ctx.lineTo(p, side - margin); ctx.stroke()
             }
             const stars = root.boardSize === 19 ? [3, 9, 15] : root.boardSize === 13 ? [3, 6, 9] : [2, 4, 6]
-            ctx.fillStyle = "#47351f"
+            ctx.fillStyle = root.boardTexture === "Classic wood" ? "#47351f" : "#e5efff"
             for (const x of stars) for (const y of stars) {
                 ctx.beginPath(); ctx.arc(margin + x * step, margin + y * step, step * 0.09, 0, Math.PI * 2); ctx.fill()
             }
@@ -72,17 +114,22 @@ Rectangle {
                     ctx.globalAlpha = 0.48
                     ctx.fillStyle = root.controller && root.controller.toPlay === 1 ? "#17191d" : "#faf9f4"
                 } else if (!color) continue
+                else if (root.stoneTexture === "Starfield") ctx.fillStyle = color === 1 ? "#172040" : "#dce9ff"
+                else if (root.stoneTexture === "Moonstone") ctx.fillStyle = color === 1 ? "#30323b" : "#e6e5ec"
                 else ctx.fillStyle = color === 1 ? "#17191d" : "#faf9f4"
+                const stoneFill = ctx.createRadialGradient(cx - radius * 0.32, cy - radius * 0.38, radius * 0.04, cx, cy, radius)
+                if (color === 1 || (!color && root.controller.toPlay === 1)) {
+                    stoneFill.addColorStop(0, root.stoneTexture === "Starfield" ? "#7180bd" : "#4a4e5a")
+                    stoneFill.addColorStop(0.42, root.stoneTexture === "Starfield" ? "#252e58" : "#24262e")
+                    stoneFill.addColorStop(1, root.stoneTexture === "Starfield" ? "#090f22" : "#08090d")
+                } else {
+                    stoneFill.addColorStop(0, "#ffffff")
+                    stoneFill.addColorStop(0.62, root.stoneTexture === "Starfield" ? "#dbe7ff" : "#e6e5ed")
+                    stoneFill.addColorStop(1, root.stoneTexture === "Starfield" ? "#8795b9" : "#92939c")
+                }
+                ctx.fillStyle = stoneFill
                 ctx.beginPath(); ctx.arc(cx, cy, radius, 0, Math.PI * 2); ctx.fill()
                 ctx.globalAlpha = 1
-                const shine = ctx.createRadialGradient(cx - radius * 0.32, cy - radius * 0.38, radius * 0.04, cx, cy, radius)
-                if (color === 1 || (!color && root.controller.toPlay === 1)) {
-                    shine.addColorStop(0, "rgba(255,255,255,0.46)"); shine.addColorStop(0.35, "rgba(160,175,192,0.11)"); shine.addColorStop(1, "rgba(0,0,0,0.12)")
-                } else {
-                    shine.addColorStop(0, "rgba(255,255,255,0.05)"); shine.addColorStop(0.62, "rgba(255,255,255,0)"); shine.addColorStop(1, "rgba(0,0,0,0.2)")
-                }
-                ctx.fillStyle = shine
-                ctx.beginPath(); ctx.arc(cx, cy, radius, 0, Math.PI * 2); ctx.fill()
             }
         }
         Connections {

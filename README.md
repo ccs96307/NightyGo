@@ -41,8 +41,9 @@ the application data directory. Automatic engine installation currently targets
 64-bit Linux and Windows using official OpenCL packages; other systems can select
 an existing KataGo binary. Memory advice uses available RAM/VRAM and model
 architecture; actual needs also depend on backend and search-cache settings.
-Preferences remember the placement sound, font size, theme, animation and
-board/stone materials.
+Preferences preview sound, font size, theme, motion and board/stone materials
+as you change them. Choose **OK** to save, or **Cancel** to restore the previous
+settings.
 Use the language selector in the top toolbar to switch the interface among
 English, Traditional Chinese, Simplified Chinese, Japanese and Korean; the
 selection is remembered.

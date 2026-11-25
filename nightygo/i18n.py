@@ -69,6 +69,7 @@ _ROWS = (
     ("Application theme", "Application theme", "介面主題", "界面主题", "アプリのテーマ", "앱 테마"),
     ("Animated board backgrounds", "Animated board backgrounds", "棋盤背景動畫", "棋盘背景动画", "盤面背景のアニメーション", "바둑판 배경 애니메이션"),
     ("Motion effects", "Motion effects", "動態效果", "动态效果", "モーション効果", "동작 효과"),
+    ("Changes preview immediately. OK saves them; Cancel restores the previous settings.", "Changes preview immediately. OK saves them; Cancel restores the previous settings.", "變更會立即預覽；按「確定」才會儲存，按「取消」則還原原設定。", "更改会立即预览；按“确定”才会保存，按“取消”则恢复原设置。", "変更はすぐにプレビューされます。「OK」で保存し、「キャンセル」で元の設定に戻します。", "변경 사항은 즉시 미리 표시됩니다. 확인을 누르면 저장되고 취소하면 이전 설정으로 돌아갑니다."),
     ("Off", "Off", "關閉", "关闭", "オフ", "끔"),
     ("Subtle", "Subtle", "細緻", "细微", "控えめ", "은은하게"),
     ("Full", "Full", "完整", "完整", "フル", "전체"),

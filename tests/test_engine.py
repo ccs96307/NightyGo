@@ -12,6 +12,8 @@ from nightygo.engine import (
     GtpEngine,
     parse_katago_info,
     parse_katago_info_lines,
+    parse_katago_ownership,
+    parse_katago_root_info,
 )
 
 
@@ -44,6 +46,18 @@ class KataGoInfoTests(unittest.TestCase):
 
     def test_rejects_invalid_numeric_values(self) -> None:
         self.assertIsNone(parse_katago_info("info move D4 visits many winrate 0.5"))
+
+    def test_parses_root_metrics_and_ownership_map(self) -> None:
+        line = (
+            "info rootInfo visits 500 winrate 0.62 scoreLead 3.5 "
+            "ownership 0.2 -0.4 0.8"
+        )
+        root = parse_katago_root_info(line)
+
+        self.assertEqual(root.visits, 500)
+        self.assertEqual(root.winrate, 0.62)
+        self.assertEqual(root.score_lead, 3.5)
+        self.assertEqual(parse_katago_ownership(line), (0.2, -0.4, 0.8))
 
 
 class GtpProcessTests(unittest.TestCase):

@@ -87,7 +87,10 @@ Rectangle {
     }
     Text {
         anchors { left: parent.left; top: parent.top; margins: 18 }
-        text: "NIGHTYGO  /  PLAY"
+        text: {
+            const labels = {en: "NIGHTYGO  /  PLAY", zh_TW: "NIGHTYGO  /  對局", zh_CN: "NIGHTYGO  /  对局", ja: "NIGHTYGO  /  対局", ko: "NIGHTYGO  /  대국"}
+            return labels[uiLanguage] || labels.en
+        }
         color: uiTheme === "Warm light" ? "#292d34" : "#d7e3f4"
         font.pixelSize: 13
         font.letterSpacing: 2.2
@@ -95,7 +98,11 @@ Rectangle {
     }
     Text {
         anchors { right: parent.right; top: parent.top; margins: 18 }
-        text: controller ? controller.moveCount + " moves" : ""
+        text: {
+            if (!controller) return ""
+            const suffix = {en: " moves", zh_TW: " 手", zh_CN: " 手", ja: "手", ko: "수"}
+            return controller.moveCount + (suffix[uiLanguage] || suffix.en)
+        }
         color: uiTheme === "Warm light" ? "#68717d" : "#91a1b7"
         font.pixelSize: 13
     }

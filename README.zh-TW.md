@@ -31,3 +31,4 @@ uv run --locked python -m nightygo
 
 使用「File → Open SGF」開啟棋譜，使用「File → Save SGF」儲存。
 AI 分析需要 KataGo 執行檔；模型可在 AI Model Center 直接下載。模型存入應用程式資料目錄下的 `models/`，選擇「下載並設為目前模型」後，NightyGo 會在啟動引擎時自動帶入模型路徑。記憶體建議是依可用 RAM／VRAM 和架構級別估算，實際需求也會受引擎後端和搜尋快取設定影響。Preferences 可預聽落子音效、調整字級、主題、動畫與棋盤／棋子材質；設定會記住。
+可使用頂端工具列的語言選單，在 English、繁體中文、简体中文、日本語與 한국어 之間切換；選擇會自動記住。

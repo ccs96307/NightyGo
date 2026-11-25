@@ -7,6 +7,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from nightygo.model import BLACK, WHITE
 from nightygo.preview import stone_pixmap
 from nightygo.sgf import SgfNode
+from nightygo.i18n import translate
 
 
 class _MoveItem(QtWidgets.QGraphicsObject):
@@ -91,6 +92,12 @@ class GameTreeView(QtWidgets.QGraphicsView):
         self._root = None
         self._current = None
         self._board_size = 19
+        self._language = "en"
+
+    def set_language(self, language: str) -> None:
+        self._language = language
+        if self._root is not None:
+            self.set_tree(self._root, self._current, self._board_size)
 
     def set_font_size(self, size: int) -> None:
         """Resize move labels and nodes with the application font setting."""
@@ -182,12 +189,16 @@ class GameTreeView(QtWidgets.QGraphicsView):
             key = id(node)
             number, color = metadata[key]
             move_value = node.values("B") or node.values("W")
-            details = [f"Move {number}" if number else "Start"]
+            details = [
+                translate("Move {number}", self._language, number=number)
+                if number
+                else translate("Start", self._language)
+            ]
             if color is not None:
-                details.append("Black" if color == BLACK else "White")
+                details.append(translate("Black" if color == BLACK else "White", self._language))
                 point = move_value[0]
                 if not point or (point == "tt" and board_size <= 19):
-                    details.append("Pass")
+                    details.append(translate("Pass", self._language))
                 else:
                     details.append(_format_point(point, board_size))
             comments = node.values("C")

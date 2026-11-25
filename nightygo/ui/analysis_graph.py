@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from PySide6 import QtCore, QtGui, QtWidgets
+from nightygo.i18n import translate
 
 
 class AnalysisGraph(QtWidgets.QWidget):
@@ -11,6 +12,7 @@ class AnalysisGraph(QtWidgets.QWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._points: tuple[tuple[int, float], ...] = ()
+        self._language = "en"
         self.setMinimumHeight(126)
         self.setSizePolicy(
             QtWidgets.QSizePolicy.Policy.Expanding,
@@ -19,6 +21,10 @@ class AnalysisGraph(QtWidgets.QWidget):
 
     def set_points(self, points: list[tuple[int, float]]) -> None:
         self._points = tuple(points)
+        self.update()
+
+    def set_language(self, language: str) -> None:
+        self._language = language
         self.update()
 
     def paintEvent(self, _event: QtGui.QPaintEvent) -> None:
@@ -34,10 +40,10 @@ class AnalysisGraph(QtWidgets.QWidget):
             painter.setPen(QtGui.QColor("#8d98a9"))
             painter.drawText(QtCore.QRectF(0, y - 8, 25, 16), QtCore.Qt.AlignmentFlag.AlignRight | QtCore.Qt.AlignmentFlag.AlignVCenter, f"{int(value * 100)}%")
         painter.setPen(QtGui.QColor("#8d98a9"))
-        painter.drawText(QtCore.QRectF(rect.left(), rect.bottom() + 4, 50, 16), QtCore.Qt.AlignmentFlag.AlignLeft, "Move")
+        painter.drawText(QtCore.QRectF(rect.left(), rect.bottom() + 4, 70, 16), QtCore.Qt.AlignmentFlag.AlignLeft, translate("Move", self._language))
         if not self._points:
             painter.setPen(QtGui.QColor("#8792a4"))
-            painter.drawText(rect, QtCore.Qt.AlignmentFlag.AlignCenter, "Run a game review to build the graph")
+            painter.drawText(rect, QtCore.Qt.AlignmentFlag.AlignCenter, translate("Run a game review to build the graph", self._language))
             painter.end()
             return
         first_move = self._points[0][0]

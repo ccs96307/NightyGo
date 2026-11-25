@@ -40,3 +40,6 @@ Memory advice is an estimate based on currently available RAM/VRAM and model
 architecture; actual needs also depend on the engine backend and search-cache
 settings. Preferences also remember the placement sound, font size, theme,
 animation and board/stone materials.
+Use the language selector in the top toolbar to switch the interface among
+English, Traditional Chinese, Simplified Chinese, Japanese and Korean; the
+selection is remembered.

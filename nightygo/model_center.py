@@ -12,6 +12,7 @@ import platform
 import re
 import shutil
 import subprocess
+import tempfile
 import zipfile
 from dataclasses import dataclass
 from html.parser import HTMLParser
@@ -28,6 +29,77 @@ MODEL_HOST = "media.katagotraining.org"
 MODEL_ROLE = QtCore.Qt.ItemDataRole.UserRole
 KATAGO_RELEASES_URL = "https://api.github.com/repos/lightvector/KataGo/releases?per_page=10"
 KATAGO_REPOSITORY = "https://github.com/lightvector/KataGo/"
+
+
+def ensure_gtp_config() -> Path:
+    """Install the bundled upstream GTP defaults in the application data dir."""
+    app_data = Path(QtCore.QStandardPaths.writableLocation(
+        QtCore.QStandardPaths.StandardLocation.AppDataLocation
+    ))
+    config = app_data / "engines" / "gtp_example.cfg"
+    source = Path(__file__).resolve().parent / "assets" / "katago_gtp_example.cfg"
+    if not config.is_file() or config.stat().st_size != source.stat().st_size:
+        config.parent.mkdir(parents=True, exist_ok=True)
+        temporary = config.with_suffix(".cfg.installing")
+        shutil.copyfile(source, temporary)
+        os.replace(temporary, config)
+    return config
+
+
+def prepare_gtp_engine(program: str | Path) -> Path:
+    """Make an official Linux KataGo AppImage runnable without system FUSE."""
+    executable = Path(program).expanduser().resolve()
+    if not executable.is_file() or platform.system() != "Linux":
+        return executable
+    if executable.name == "AppRun" or executable.parent.name.endswith("-runtime"):
+        return executable
+    try:
+        probe = subprocess.run(
+            [str(executable), "--appimage-version"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return executable
+    if probe.returncode != 0:
+        return executable
+
+    runtime_dir = executable.parent / f"{executable.stem}-runtime"
+    app_run = runtime_dir / "AppRun"
+    if app_run.is_file():
+        return app_run
+    runtime_dir.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="nightygo-katago-") as temporary_dir:
+        subprocess.run(
+            [str(executable), "--appimage-extract"],
+            cwd=temporary_dir,
+            capture_output=True,
+            text=True,
+            timeout=180,
+            check=True,
+        )
+        extracted = Path(temporary_dir) / "squashfs-root"
+        if not (extracted / "AppRun").is_file() or not (extracted / "usr" / "bin" / "katago").is_file():
+            raise ValueError("The selected AppImage does not contain a KataGo runtime")
+        staging = runtime_dir.with_name(runtime_dir.name + ".installing")
+        shutil.rmtree(staging, ignore_errors=True)
+        shutil.copytree(extracted, staging)
+        if runtime_dir.exists():
+            shutil.rmtree(runtime_dir)
+        os.replace(staging, runtime_dir)
+    logger.info("Extracted KataGo AppImage to run without FUSE: %s", app_run)
+    return app_run
+
+
+def apply_config_argument(arguments: Sequence[str], config_path: str) -> tuple[str, ...]:
+    """Keep a user config or append NightyGo's working default config."""
+    result = list(arguments)
+    if "-config" in result or any(value.startswith("-config=") for value in result):
+        return tuple(result)
+    result.extend(("-config", config_path))
+    return tuple(result)
 
 
 @dataclass(frozen=True)
@@ -255,7 +327,7 @@ class ModelCenterDialog(QtWidgets.QDialog):
     def __init__(self, settings: QtCore.QSettings, parent=None) -> None:
         super().__init__(parent)
         self._language = str(settings.value("language", "en"))
-        self.setWindowTitle(self._t("NightyGo · AI Model Center"))
+        self.setWindowTitle(self._t("NightyGo · AI Studio"))
         self.setObjectName("modelCenterDialog")
         screen = self.screen()
         available = screen.availableGeometry() if screen else QtCore.QRect(0, 0, 1280, 800)
@@ -289,8 +361,22 @@ class ModelCenterDialog(QtWidgets.QDialog):
         )) / "models"
         self._download_dir = Path(str(settings.value("model-center/download-dir", default_download_dir)))
 
-        hero = QtWidgets.QLabel(self._t("AI Model Center"), self)
+        hero = QtWidgets.QLabel(self._t("AI Studio"), self)
         hero.setObjectName("dialogHero")
+        subtitle = QtWidgets.QLabel(
+            self._t("Choose a model. NightyGo will connect it to KataGo for you."), self
+        )
+        subtitle.setObjectName("aiHeroSubtitle")
+        subtitle.setWordWrap(True)
+        steps = QtWidgets.QHBoxLayout()
+        self._step_labels = []
+        for number, label in (("1", "Pick a model"), ("2", "Set up engine"), ("3", "Analyze a game")):
+            step = QtWidgets.QLabel(f"{number}  {self._t(label)}", self)
+            step.setObjectName("aiSetupStep")
+            step.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+            step.setMinimumHeight(42)
+            steps.addWidget(step, 1)
+            self._step_labels.append(step)
         self._hardware_label = QtWidgets.QLabel(self)
         self._hardware_label.setObjectName("hardwareSummary")
         self._hardware_label.setWordWrap(True)
@@ -335,8 +421,9 @@ class ModelCenterDialog(QtWidgets.QDialog):
         self._progress.setRange(0, 100)
         self._progress.setValue(0)
         self._engine_label = QtWidgets.QLabel(self)
+        self._engine_label.setObjectName("aiEngineStatus")
         self._engine_label.setWordWrap(True)
-        self._engine_button = QtWidgets.QPushButton(self._t("Download engine and configure selected AI"), self)
+        self._engine_button = QtWidgets.QPushButton(self._t("Set up AI automatically"), self)
         self._engine_button.setProperty("variant", "primary")
         self._engine_button.clicked.connect(self._configure_selected_ai)
         self._engine_arguments = QtWidgets.QLineEdit(
@@ -345,12 +432,24 @@ class ModelCenterDialog(QtWidgets.QDialog):
         self._engine_arguments.setPlaceholderText(self._t("Engine arguments (advanced)"))
         self._engine_browse = QtWidgets.QPushButton(self._t("Use existing engine…"), self)
         self._engine_browse.clicked.connect(self._select_existing_engine)
-        engine_row = QtWidgets.QHBoxLayout()
-        engine_row.addWidget(self._engine_label, 1)
-        engine_row.addWidget(self._engine_arguments)
-        engine_row.addWidget(self._engine_browse)
-        engine_row.addWidget(self._engine_button)
-        self._status = QtWidgets.QLabel(self._t("Choose a model, then configure the engine and model together here."), self)
+        advanced_toggle = QtWidgets.QToolButton(self)
+        advanced_toggle.setText(self._t("Advanced engine settings"))
+        advanced_toggle.setCheckable(True)
+        advanced_toggle.setToolButtonStyle(QtCore.Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        advanced_toggle.setArrowType(QtCore.Qt.ArrowType.RightArrow)
+        advanced = QtWidgets.QWidget(self)
+        advanced_layout = QtWidgets.QHBoxLayout(advanced)
+        advanced_layout.setContentsMargins(0, 0, 0, 0)
+        advanced_layout.addWidget(self._engine_arguments, 1)
+        advanced_layout.addWidget(self._engine_browse)
+        advanced.setVisible(False)
+        def toggle_advanced(expanded: bool) -> None:
+            advanced.setVisible(expanded)
+            advanced_toggle.setArrowType(
+                QtCore.Qt.ArrowType.DownArrow if expanded else QtCore.Qt.ArrowType.RightArrow
+            )
+        advanced_toggle.toggled.connect(toggle_advanced)
+        self._status = QtWidgets.QLabel(self._t("Pick a model, then tap Set up AI. NightyGo connects everything automatically."), self)
         self._status.setObjectName("modelStatus")
         self._status.setWordWrap(True)
         self._download_button = QtWidgets.QPushButton(self._t("Download and set as current model"), self)
@@ -365,7 +464,7 @@ class ModelCenterDialog(QtWidgets.QDialog):
         actions.addWidget(self._download_button)
         actions.addWidget(self._download_only_button)
         actions.addWidget(self._cancel_button)
-        self._responsive_layouts = (hardware_row, folder_row, engine_row, actions)
+        self._responsive_layouts = (hardware_row, folder_row, advanced_layout, actions)
 
         license_link = QtWidgets.QLabel(
             f'{self._t("Network models and licenses:")} <a href="{LICENSE_URL}">KataGo Neural Network License</a>'
@@ -386,15 +485,20 @@ class ModelCenterDialog(QtWidgets.QDialog):
         layout.setContentsMargins(18, 14, 18, 16)
         layout.setSpacing(11)
         layout.addWidget(hero)
+        layout.addWidget(subtitle)
+        layout.addLayout(steps)
         layout.addLayout(hardware_row)
+        layout.addWidget(self._engine_label)
+        layout.addWidget(self._engine_button)
         layout.addWidget(self._search)
         layout.addWidget(self._models, 1)
         layout.addWidget(self._details)
-        layout.addLayout(engine_row)
         layout.addLayout(folder_row)
         layout.addWidget(self._progress)
         layout.addWidget(self._status)
         layout.addLayout(actions)
+        layout.addWidget(advanced_toggle)
+        layout.addWidget(advanced)
         layout.addWidget(license_link)
         layout.addWidget(note)
         scroll = QtWidgets.QScrollArea(self)
@@ -582,6 +686,9 @@ class ModelCenterDialog(QtWidgets.QDialog):
         self._download_button.setText(self._t("Downloaded · set as current model" if model_path.is_file() else "Download and set as current model"))
         self._download_only_button.setText(self._t("Download again" if model_path.is_file() else "Download only"))
         self._engine_button.setEnabled(True)
+        self._step_labels[0].setProperty("complete", True)
+        self._step_labels[0].style().unpolish(self._step_labels[0])
+        self._step_labels[0].style().polish(self._step_labels[0])
 
     def _choose_download_folder(self) -> None:
         folder = QtWidgets.QFileDialog.getExistingDirectory(self, self._t("Choose folder…"), str(self._download_dir))
@@ -598,13 +705,14 @@ class ModelCenterDialog(QtWidgets.QDialog):
             self._status.setText(self._t("Choose a model first."))
             return
         existing = self._download_dir / self._selected.filename
+        engine_ready = Path(str(self._settings.value("engine_program", ""))).is_file()
         if existing.is_file():
-            if Path(str(self._settings.value("engine_program", ""))).is_file():
+            if engine_ready:
                 self._use_model(existing)
             else:
                 self._configure_selected_ai()
         else:
-            self._engine_setup_pending = not bool(self._settings.value("engine_program", ""))
+            self._engine_setup_pending = not engine_ready
             if self._engine_setup_pending:
                 self._install_engine()
             else:
@@ -807,16 +915,24 @@ class ModelCenterDialog(QtWidgets.QDialog):
             self._begin_download(use_when_done=True)
 
     def _finish_ai_setup(self, engine_path: Path, model_path: Path) -> None:
-        self._settings.setValue("engine_program", str(engine_path))
+        try:
+            executable = prepare_gtp_engine(engine_path)
+            config = ensure_gtp_config()
+        except (OSError, subprocess.SubprocessError, ValueError) as error:
+            self._engine_setup_failed(str(error))
+            return
+        self._settings.setValue("engine_program", str(executable))
         self._settings.setValue("engine_model", str(model_path))
+        self._settings.setValue("engine_config", str(config))
         self._settings.setValue("engine_arguments", self._engine_arguments.text().strip() or "gtp")
         self._settings.sync()
         self._engine_setup_pending = False
         self._set_busy(False)
         self._refresh_engine_status()
         self._populate_catalog()
-        self._status.setText(self._t("AI setup complete. Engine and model are ready; start analysis."))
+        self._status.setText(self._t("AI setup complete. Starting analysis…"))
         self.modelSelected.emit(str(model_path))
+        self.accept()
 
     def _engine_setup_failed(self, message: str) -> None:
         self._engine_setup_pending = False
@@ -826,12 +942,44 @@ class ModelCenterDialog(QtWidgets.QDialog):
 
     def _refresh_engine_status(self) -> None:
         program = Path(str(self._settings.value("engine_program", "")))
-        if program.is_file():
-            self._engine_label.setText(self._t("Engine ready: {path}", path=program))
-            self._engine_button.setText(self._t("Reinstall engine and configure selected AI"))
+        model = Path(str(self._settings.value("engine_model", "")))
+        try:
+            config = ensure_gtp_config()
+            if program.is_file():
+                executable = prepare_gtp_engine(program)
+                if executable != program:
+                    self._settings.setValue("engine_program", str(executable))
+                    program = executable
+            if not self._settings.value("engine_config", ""):
+                self._settings.setValue("engine_config", str(config))
+            self._settings.sync()
+        except (OSError, subprocess.SubprocessError, ValueError) as error:
+            self._set_engine_status(self._t("Engine setup needs attention: {error}", error=error), False)
+            return
+        engine_ready = program.is_file()
+        model_ready = model.is_file()
+        if engine_ready and model_ready:
+            text = self._t("Ready to analyze · KataGo and model are connected")
+            self._engine_button.setText(self._t("Set up a different model"))
+        elif engine_ready:
+            text = self._t("KataGo is ready · choose and download a model below")
+            self._engine_button.setText(self._t("Set up selected model"))
         else:
-            self._engine_label.setText(self._t("KataGo engine is not installed or configured."))
-            self._engine_button.setText(self._t("Download engine and configure selected AI"))
+            text = self._t("Start here · one click installs the engine and selected model")
+            self._engine_button.setText(self._t("Set up AI automatically"))
+        self._set_engine_status(text, engine_ready and model_ready)
+        self._step_labels[0].setProperty("complete", bool(self._selected))
+        self._step_labels[1].setProperty("complete", engine_ready and model_ready)
+        self._step_labels[2].setProperty("complete", False)
+        for label in self._step_labels:
+            label.style().unpolish(label)
+            label.style().polish(label)
+
+    def _set_engine_status(self, text: str, ready: bool) -> None:
+        self._engine_label.setText(text)
+        self._engine_label.setProperty("ready", ready)
+        self._engine_label.style().unpolish(self._engine_label)
+        self._engine_label.style().polish(self._engine_label)
 
     def _begin_download(self, use_when_done: bool) -> None:
         if self._selected is None:
@@ -991,8 +1139,9 @@ class ModelCenterDialog(QtWidgets.QDialog):
         self._populate_catalog()
         if self._models.currentItem():
             self._selection_changed(self._models.currentItem(), None)
-        self._status.setText(self._t("Model selected; start analysis to load it into KataGo."))
+        self._status.setText(self._t("Model selected. Starting analysis…"))
         self.modelSelected.emit(str(path))
+        self.accept()
 
     def closeEvent(self, event) -> None:
         if self._catalog_reply is not None:

@@ -15,4 +15,4 @@ nightygo = "nightygo.app:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["nightygo"]
-include = ["nightygo/qml/*.qml"]
+include = ["nightygo/qml/*.qml", "nightygo/assets/*"]

@@ -3,11 +3,12 @@
 from pathlib import Path
 import logging
 import shlex
+import subprocess
 
 from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtQuickWidgets import QQuickWidget
 
-from nightygo.audio import StonePlacementSound
+from nightygo.audio import StoneCaptureSound, StonePlacementSound
 from nightygo.engine import AnalysisMove, AnalysisRoot, EngineConfig, GtpEngine
 from nightygo.model import BLACK, WHITE
 from nightygo.materials import STONE_MATERIALS
@@ -18,7 +19,13 @@ from nightygo.ui.game_tree_view import GameTreeView
 from nightygo.ui.analysis_graph import AnalysisGraph
 from nightygo.sgf_session import SgfGameSession
 from nightygo.library import GameLibrary
-from nightygo.model_center import ModelCenterDialog, apply_model_argument
+from nightygo.model_center import (
+    ModelCenterDialog,
+    apply_config_argument,
+    apply_model_argument,
+    ensure_gtp_config,
+    prepare_gtp_engine,
+)
 from nightygo.i18n import LANGUAGES, retranslate_widget_tree, translate
 from nightygo.ui.theme import apply_application_theme
 
@@ -58,12 +65,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self._engine.errorOccurred.connect(
             lambda message: self.statusBar().showMessage(message, 7000)
         )
+        self._engine.outputReceived.connect(self._engine_output_received)
         self._engine.analysisUpdated.connect(self._analysis_updated)
         self._engine.rootInfoUpdated.connect(self._root_info_updated)
         self._engine.ownershipUpdated.connect(self._ownership_updated)
         self._engine.responseReceived.connect(self._engine_response_received)
         self.game = self._controller.game
         self._stone_sound = StonePlacementSound(self)
+        self._capture_sound = StoneCaptureSound(self)
+        self._discard_on_close = False
+        self._engine_shutdown_waiting = False
         self._board = BoardWidget(self)
         self._board.set_ui_theme(self._ui_theme)
         self._board.set_board_material(self._settings.value("board_material", "Classic wood"))
@@ -110,7 +121,7 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         self._game_tree.set_motion_level(self._motion_level)
 
-        self._analysis_status = QtWidgets.QLabel(self._t("Configure KataGo in AI Model Center"))
+        self._analysis_status = QtWidgets.QLabel(self._t("Open AI Studio and set up a model first"))
         self._analysis_summary = QtWidgets.QLabel("No analysis available")
         self._analysis_summary.setWordWrap(True)
         self._candidate_list = QtWidgets.QListWidget()
@@ -148,7 +159,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._start_analysis_button.clicked.connect(self._start_analysis_button_clicked)
         stop_analysis_button = QtWidgets.QPushButton("Stop")
         stop_analysis_button.clicked.connect(self._stop_engine_analysis)
-        configure_engine_button = QtWidgets.QPushButton("Configure KataGo…")
+        configure_engine_button = QtWidgets.QPushButton("AI Studio…")
         configure_engine_button.setProperty("variant", "secondary")
         configure_engine_button.clicked.connect(self._open_model_center)
         play_candidate_button = QtWidgets.QPushButton("Play selected move")
@@ -340,7 +351,7 @@ class MainWindow(QtWidgets.QMainWindow):
         settings_menu = self.menuBar().addMenu("Settings")
         preferences_action = settings_menu.addAction("Preferences…")
         preferences_action.triggered.connect(self._open_settings)
-        model_center_action = settings_menu.addAction("AI Model Center…")
+        model_center_action = settings_menu.addAction("AI Studio…")
         model_center_action.triggered.connect(self._open_model_center)
         self.addDockWidget(QtCore.Qt.DockWidgetArea.RightDockWidgetArea, self._comments_dock)
         self.tabifyDockWidget(self._tree_dock, self._comments_dock)
@@ -477,7 +488,14 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _play_at(self, x: int, y: int) -> None:
         if self._controller.play_at(x, y):
-            self._stone_sound.play()
+            self._play_move_sounds()
+
+    def _play_move_sounds(self) -> None:
+        self._stone_sound.play()
+        move = self.game.last_move
+        if move is not None and move.captured:
+            captured_count = len(move.captured)
+            QtCore.QTimer.singleShot(90, lambda count=captured_count: self._capture_sound.play(count))
 
     def _undo(self) -> None:
         self._controller.undo()
@@ -738,21 +756,43 @@ class MainWindow(QtWidgets.QMainWindow):
             self._analysis_requested = True
             self._analysis_status.setText(self._t("Starting KataGo…"))
             return
-        program = self._settings.value("engine_program", "")
-        if not program:
+        configured_program = str(self._settings.value("engine_program", ""))
+        if not configured_program:
             self._analysis_requested = False
-            self._analysis_status.setText(self._t("Configure KataGo in AI Model Center"))
+            self._analysis_status.setText(self._t("Open AI Studio and set up a model first"))
+            return
+        try:
+            program = prepare_gtp_engine(configured_program)
+            if not program.is_file():
+                raise ValueError(self._t("KataGo executable was not found. Reinstall it in AI Studio."))
+            config = Path(str(self._settings.value("engine_config", "")))
+            if not config.is_file():
+                config = ensure_gtp_config()
+            model = Path(str(self._settings.value("engine_model", "")))
+            if not model.is_file():
+                raise ValueError(self._t("The selected AI model file is missing. Download or choose a model in AI Studio."))
+            self._settings.setValue("engine_program", str(program))
+            self._settings.setValue("engine_config", str(config))
+            self._settings.sync()
+        except (OSError, subprocess.SubprocessError, ValueError) as error:
+            self._analysis_requested = False
+            self._analysis_status.setText(self._t("AI setup needs attention: {error}", error=error))
+            self.statusBar().showMessage(str(error), 8000)
+            logger.exception("Could not prepare KataGo for analysis")
             return
         try:
             arguments = list(shlex.split(self._settings.value("engine_arguments", "gtp")))
         except ValueError as error:
             self.statusBar().showMessage(self._t("Invalid engine arguments: {error}", error=error), 6000)
             return
-        selected_model = str(self._settings.value("engine_model", ""))
-        arguments = apply_model_argument(arguments, selected_model)
+        arguments = list(apply_config_argument(arguments, str(config)))
+        arguments = list(apply_model_argument(arguments, str(model)))
         self._analysis_requested = not self._review_requested
         self._analysis_status.setText(self._t("Starting KataGo…"))
-        self._engine.start(EngineConfig(str(program), arguments))
+        logger.info("Starting KataGo for analysis: %s %s", program, arguments)
+        self._engine.start(
+            EngineConfig(str(program), tuple(arguments), str(config.parent))
+        )
 
     def _start_analysis_button_clicked(self) -> None:
         """Start position analysis and cancel any queued review request."""
@@ -776,6 +816,8 @@ class MainWindow(QtWidgets.QMainWindow):
     def _engine_status_changed(self, status: str) -> None:
         if status == GtpEngine.ERROR:
             self._analysis_status.setText(self._t("Engine error; see status message"))
+        elif status == GtpEngine.STOPPED and self._analysis_requested:
+            QtCore.QTimer.singleShot(0, self._start_engine_analysis)
         elif status == GtpEngine.STARTING:
             self._analysis_status.setText(self._t("Starting engine…"))
         elif status == GtpEngine.STOPPED:
@@ -784,6 +826,15 @@ class MainWindow(QtWidgets.QMainWindow):
             self._analysis_status.setText(self._t("Analyzing current position…"))
         elif status == GtpEngine.READY and self._review_requested:
             self._begin_game_review()
+
+    def _engine_output_received(self, line: str) -> None:
+        if self._engine.status != GtpEngine.STARTING:
+            return
+        message = line.casefold()
+        if "autotun" in message or "opencl device" in message or "finding available gpu" in message:
+            self._analysis_status.setText(self._t("Preparing GPU for first use…"))
+        elif "neural net" in message or "loading model" in message:
+            self._analysis_status.setText(self._t("Loading the selected AI model…"))
 
     def _request_current_position_analysis(self) -> None:
         self._analysis_requested = True
@@ -889,7 +940,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if not self._settings.value("engine_program", ""):
             self._review_requested = False
             self._review_stop_button.setEnabled(False)
-            self._analysis_status.setText(self._t("Configure KataGo in AI Model Center"))
+            self._analysis_status.setText(self._t("Open AI Studio and set up a model first"))
             return
         if self._engine.status != GtpEngine.READY:
             self._review_requested = True
@@ -1034,16 +1085,33 @@ class MainWindow(QtWidgets.QMainWindow):
         except ValueError:
             return
         if self._controller.play_at(x, y):
-            self._stone_sound.play()
+            self._play_move_sounds()
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:
-        if not self._confirm_discard_changes():
+        if not self._discard_on_close:
+            if not self._confirm_discard_changes():
+                event.ignore()
+                return
+            self._discard_on_close = True
+        if self._engine.is_running:
             event.ignore()
+            if not self._engine_shutdown_waiting:
+                self._engine_shutdown_waiting = True
+                self._analysis_requested = False
+                self._review_requested = False
+                self._analysis_status.setText(self._t("Stopping KataGo before closing…"))
+                self._engine.statusChanged.connect(self._close_after_engine_shutdown)
+                self._engine.stop()
             return
         self._recovery_timer.stop()
         self._remove_recovery()
-        self._engine.stop()
         super().closeEvent(event)
+
+    def _close_after_engine_shutdown(self, status: str) -> None:
+        if status not in (GtpEngine.STOPPED, GtpEngine.ERROR) or self._engine.is_running:
+            return
+        self._engine.statusChanged.disconnect(self._close_after_engine_shutdown)
+        QtCore.QTimer.singleShot(0, self.close)
 
     def _show_error(self, title: str, error: Exception) -> None:
         QtWidgets.QMessageBox.critical(self, title, str(error))
@@ -1261,16 +1329,19 @@ class MainWindow(QtWidgets.QMainWindow):
     def _open_model_center(self) -> None:
         dialog = ModelCenterDialog(self._settings, self)
         dialog.modelSelected.connect(self._model_selected)
-        dialog.exec()
-        self._analysis_status.setText(self._t("Configure KataGo in AI Model Center"))
+        result = dialog.exec()
+        if result != QtWidgets.QDialog.DialogCode.Accepted:
+            return
+        self._analysis_status.setText(self._t("Starting AI analysis…"))
 
     def _model_selected(self, path: str) -> None:
+        logger.info("AI model selected: %s", path)
+        self._analysis_requested = True
+        self._analysis_status.setText(self._t("Starting AI analysis…"))
         if self._engine.is_running:
-            self._analysis_requested = False
             self._engine.stop()
-        self._analysis_status.setText(
-            self._t("Model selected: {name}. Start analysis to load it into KataGo.", name=Path(path).name)
-        )
+        else:
+            QtCore.QTimer.singleShot(0, self._start_engine_analysis)
 
     def _select_engine_program(self, field: QtWidgets.QLineEdit) -> None:
         path, _ = QtWidgets.QFileDialog.getOpenFileName(

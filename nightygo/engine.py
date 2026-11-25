@@ -183,6 +183,7 @@ class GtpEngine(QtCore.QObject):
         self._name = ""
         self._version = ""
         self._pending_config: EngineConfig | None = None
+        self._stopping = False
 
     @property
     def status(self) -> str:
@@ -205,6 +206,7 @@ class GtpEngine(QtCore.QObject):
             self._fail("Select a GTP engine executable first")
             return
         self._pending_config = None
+        self._stopping = False
         self._queue.clear()
         self._inflight.clear()
         self._active_id = None
@@ -225,6 +227,7 @@ class GtpEngine(QtCore.QObject):
         if not self.is_running:
             self._set_status(self.STOPPED)
             return
+        self._stopping = True
         self._process.write(b"quit\n")
         QtCore.QTimer.singleShot(900, self._terminate_if_running)
 
@@ -415,10 +418,21 @@ class GtpEngine(QtCore.QObject):
 
     def _on_finished(self, exit_code: int, _exit_status: QtCore.QProcess.ExitStatus) -> None:
         logger.info("GTP process exited with status %d", exit_code)
+        failed_early = not self._stopping and exit_code != 0 and self._status in (
+            self.STARTING, self.READY, self.ANALYZING
+        )
+        diagnostic = self._stderr_buffer.strip()
+        if failed_early:
+            message = f"KataGo exited with code {exit_code}"
+            if diagnostic:
+                message += f": {diagnostic}"
+            logger.error("%s", message)
+            self.errorOccurred.emit(message)
         self._queue.clear()
         self._inflight.clear()
         self._active_id = None
-        self._set_status(self.STOPPED)
+        self._stopping = False
+        self._set_status(self.ERROR if failed_early else self.STOPPED)
         if self._pending_config is not None:
             config = self._pending_config
             QtCore.QTimer.singleShot(0, lambda: self._launch(config))

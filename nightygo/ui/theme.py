@@ -99,6 +99,11 @@ def apply_application_theme(theme: str, font_size: int = 14) -> None:
         QLabel#dialogHero {{ color: {c['text']}; font-size: {hero_size:.1f}pt; font-weight: 750; padding: 5px 2px 9px; }}
         QLabel#hardwareSummary, QLabel#modelDetails {{ background: {c['surface']}; border: 1px solid {c['border']}; border-radius: 12px; padding: 12px 14px; }}
         QLabel#hardwareSummary {{ font-size: {card_size:.1f}pt; }}
+        QLabel#aiHeroSubtitle {{ color: {c['muted']}; font-size: {max(10.0, font_size * 0.84):.1f}pt; padding: 0 2px 6px; }}
+        QLabel#aiSetupStep {{ background: {c['raised']}; color: {c['muted']}; border: 1px solid {c['border']}; border-radius: 12px; padding: 8px 12px; font-weight: 700; }}
+        QLabel#aiSetupStep[complete="true"] {{ color: {c['accent']}; border-color: {c['accent']}; }}
+        QLabel#aiEngineStatus {{ background: {c['hover']}; color: {c['text']}; border: 1px solid {c['border']}; border-radius: 12px; padding: 13px 15px; font-size: {card_size:.1f}pt; font-weight: 700; }}
+        QLabel#aiEngineStatus[ready="true"] {{ color: {c['accent']}; border-color: {c['accent']}; }}
         QLabel#modelStatus {{ background: {c['raised']}; border: 1px solid {c['border']}; border-radius: 8px; padding: 8px 10px; color: {c['muted']}; }}
         QLabel#emptyState {{ background: {c['surface']}; color: {c['muted']}; border: 1px dashed {c['border']}; border-radius: 10px; padding: 24px; }}
         QLabel#modelFootnote {{ color: {c['muted']}; font-size: {footnote_size:.1f}pt; }}

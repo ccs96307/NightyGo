@@ -77,3 +77,63 @@ class StonePlacementSound:
         elif status == QSoundEffect.Status.Error:
             self._pending_play.discard(name)
             logger.error("Could not load placement sound %r from %s", name, effect.source().toString())
+
+
+class StoneCaptureSound:
+    """Play a short Go-stone pickup pattern sized to the captured group."""
+
+    SOUND_FILES = {
+        "single": "capture_single.wav",
+        "small_group": "capture_small_group.wav",
+        "group": "capture_group.wav",
+        "large_group": "capture_large_group.wav",
+    }
+
+    def __init__(self, parent=None):
+        self._effects = {}
+        self._pending_play: set[str] = set()
+        assets = Path(__file__).parent / "assets"
+        for band, filename in self.SOUND_FILES.items():
+            effect = QSoundEffect(parent)
+            self._effects[band] = effect
+            effect.setVolume(0.52)
+            effect.statusChanged.connect(lambda name=band: self._on_status_changed(name))
+            effect.setSource(QUrl.fromLocalFile(str(assets / filename)))
+
+    @staticmethod
+    def band_for_count(count: int) -> str | None:
+        """Map a captured group size to one of four audible patterns."""
+        if count <= 0:
+            return None
+        if count == 1:
+            return "single"
+        if count <= 3:
+            return "small_group"
+        if count <= 7:
+            return "group"
+        return "large_group"
+
+    @classmethod
+    def available_sounds(cls) -> tuple[str, ...]:
+        return tuple(cls.SOUND_FILES)
+
+    def play(self, captured_count: int) -> None:
+        band = self.band_for_count(captured_count)
+        effect = self._effects.get(band)
+        if effect is None:
+            return
+        if effect.status() == QSoundEffect.Status.Ready:
+            effect.play()
+        elif effect.status() == QSoundEffect.Status.Loading:
+            self._pending_play.add(band)
+
+    def _on_status_changed(self, band: str) -> None:
+        effect = self._effects.get(band)
+        if effect is None:
+            return
+        if effect.status() == QSoundEffect.Status.Ready and band in self._pending_play:
+            self._pending_play.discard(band)
+            effect.play()
+        elif effect.status() == QSoundEffect.Status.Error:
+            self._pending_play.discard(band)
+            logger.error("Could not load capture sound %s from %s", band, effect.source().toString())

@@ -1,6 +1,6 @@
 """Main NightyGo application window."""
 
-from PySide6 import QtWidgets
+from PySide6 import QtGui, QtWidgets
 
 from nightygo.audio import StonePlacementSound
 from nightygo.model import BLACK, WHITE, GoGame, IllegalMove
@@ -18,13 +18,21 @@ class MainWindow(QtWidgets.QMainWindow):
         self._board.set_game(self.game)
         self._board.point_clicked.connect(self._play_at)
 
+        self._undo_button = QtWidgets.QPushButton("Undo")
+        self._undo_button.clicked.connect(self._undo)
         pass_button = QtWidgets.QPushButton("Pass")
         pass_button.clicked.connect(self._pass_turn)
         self._capture_label = QtWidgets.QLabel()
 
+        undo_action = QtGui.QAction("Undo", self)
+        undo_action.setShortcut(QtGui.QKeySequence.StandardKey.Undo)
+        undo_action.triggered.connect(self._undo)
+        self.addAction(undo_action)
+
         controls = QtWidgets.QHBoxLayout()
         controls.addStretch(1)
         controls.addWidget(self._capture_label)
+        controls.addWidget(self._undo_button)
         controls.addWidget(pass_button)
 
         layout = QtWidgets.QVBoxLayout()
@@ -46,6 +54,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self._stone_sound.play()
         self._refresh()
 
+    def _undo(self) -> None:
+        try:
+            self.game.undo()
+        except IllegalMove as error:
+            self.statusBar().showMessage(str(error), 3000)
+            return
+        self._refresh()
+
     def _pass_turn(self) -> None:
         try:
             self.game.pass_turn()
@@ -56,6 +72,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _refresh(self) -> None:
         self._board.set_game(self.game)
+        self._undo_button.setEnabled(self.game.can_undo)
         if self.game.is_finished:
             self.statusBar().showMessage("Game ended after two passes")
         else:

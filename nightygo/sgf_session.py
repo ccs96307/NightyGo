@@ -61,6 +61,26 @@ class SgfGameSession:
         self.game = self._rebuild_game()
         return self.game
 
+    def navigate_to(self, target: SgfNode) -> GoGame:
+        """Navigate directly to a node in this session's game tree."""
+        path: list[SgfNode] = []
+
+        def find(node: SgfNode) -> bool:
+            path.append(node)
+            if node is target:
+                return True
+            for child in node.children:
+                if find(child):
+                    return True
+            path.pop()
+            return False
+
+        if not find(self.root):
+            raise SgfError("The selected node is not part of this game")
+        self.path = path
+        self.game = self._rebuild_game()
+        return self.game
+
     def append_move(self, move: Move) -> GoGame:
         """Append a move as a continuation or a new variation."""
         color = "B" if move.color == BLACK else "W"

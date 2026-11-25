@@ -2,10 +2,10 @@
 
 from pathlib import Path
 
-from PySide6 import QtGui, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 
 from nightygo.audio import StonePlacementSound
-from nightygo.model import BLACK, WHITE, GoGame, IllegalMove
+from nightygo.model import BLACK, WHITE, IllegalMove
 from nightygo.sgf import SgfCollection, SgfError, read_sgf, write_sgf
 from nightygo.sgf_session import SgfGameSession
 from nightygo.ui.board_widget import BoardWidget
@@ -39,6 +39,14 @@ class MainWindow(QtWidgets.QMainWindow):
         pass_button.clicked.connect(self._pass_turn)
         self._capture_label = QtWidgets.QLabel()
 
+        self._game_tree = QtWidgets.QTreeWidget()
+        self._game_tree.setHeaderHidden(True)
+        self._game_tree.setMinimumWidth(190)
+        self._game_tree.itemSelectionChanged.connect(self._tree_selection_changed)
+        self._tree_dock = QtWidgets.QDockWidget("Game Tree", self)
+        self._tree_dock.setObjectName("gameTreeDock")
+        self._tree_dock.setWidget(self._game_tree)
+
         undo_action = QtGui.QAction("Undo", self)
         undo_action.setShortcut(QtGui.QKeySequence.StandardKey.Undo)
         undo_action.triggered.connect(self._undo)
@@ -60,6 +68,9 @@ class MainWindow(QtWidgets.QMainWindow):
         central_widget = QtWidgets.QWidget(self)
         central_widget.setLayout(layout)
         self.setCentralWidget(central_widget)
+        self.addDockWidget(QtCore.Qt.DockWidgetArea.RightDockWidgetArea, self._tree_dock)
+        view_menu = self.menuBar().addMenu("View")
+        view_menu.addAction(self._tree_dock.toggleViewAction())
         self.setWindowTitle("NightyGo")
         self.resize(860, 760)
         self._refresh()
@@ -181,8 +192,87 @@ class MainWindow(QtWidgets.QMainWindow):
     def _refresh_navigation(self, *_args) -> None:
         self._next_button.setEnabled(self._session.can_advance)
 
+    def _tree_selection_changed(self) -> None:
+        selected = self._game_tree.selectedItems()
+        if not selected:
+            return
+        node = selected[0].data(0, QtCore.Qt.ItemDataRole.UserRole)
+        if node is self._session.current_node:
+            return
+        try:
+            self.game = self._session.navigate_to(node)
+        except SgfError as error:
+            self.statusBar().showMessage(str(error), 3000)
+            return
+        self._refresh()
+
+    def _refresh_tree(self) -> None:
+        self._game_tree.blockSignals(True)
+        self._game_tree.clear()
+        item_by_node = {}
+        board_size = self.game.size
+        root_item = QtWidgets.QTreeWidgetItem(
+            [self._node_label(self._session.root, 0, board_size)]
+        )
+        root_item.setData(0, QtCore.Qt.ItemDataRole.UserRole, self._session.root)
+        self._game_tree.addTopLevelItem(root_item)
+        item_by_node[id(self._session.root)] = root_item
+
+        def add_children(parent_item, parent_node, move_number):
+            for child in parent_node.children:
+                has_move = bool(child.values("B") or child.values("W"))
+                number = move_number + 1 if has_move else move_number
+                item = QtWidgets.QTreeWidgetItem(
+                    [self._node_label(child, number, board_size)]
+                )
+                item.setData(0, QtCore.Qt.ItemDataRole.UserRole, child)
+                parent_item.addChild(item)
+                item_by_node[id(child)] = item
+                add_children(item, child, number)
+
+        add_children(root_item, self._session.root, 0)
+        for node in self._session.path:
+            item = item_by_node.get(id(node))
+            if item is not None:
+                item.setExpanded(True)
+        current_item = item_by_node.get(id(self._session.current_node))
+        if current_item is not None:
+            self._game_tree.setCurrentItem(current_item)
+            self._game_tree.scrollToItem(current_item)
+        self._game_tree.blockSignals(False)
+
+    @staticmethod
+    def _node_label(node, move_number, board_size):
+        black = node.values("B")
+        white = node.values("W")
+        if black or white:
+            color, values = ("B", black) if black else ("W", white)
+            point = values[0]
+            if not point or (point == "tt" and board_size <= 19):
+                location = "Pass"
+            else:
+                x = ord(point[0]) - ord("a")
+                y = ord(point[1]) - ord("a")
+                column = chr(ord("A") + x + (1 if x >= 8 else 0))
+                location = f"{column}{board_size - y}"
+            label = f"{move_number}. {color} {location}"
+        elif node is not None and (node.values("AB") or node.values("AW") or node.values("AE")):
+            label = "Setup stones"
+        elif node.values("EV"):
+            label = f"Game: {node.values('EV')[0]}"
+        else:
+            label = "Game"
+        comments = node.values("C")
+        if comments:
+            comment = " ".join(comments).replace("\n", " ").strip()
+            if comment:
+                snippet = comment[:36] + ("…" if len(comment) > 36 else "")
+                label += f" — {snippet}"
+        return label
+
     def _refresh(self) -> None:
         self._board.set_game(self.game)
+        self._refresh_tree()
         self._undo_button.setEnabled(self._session.can_undo)
         self._previous_button.setEnabled(self._session.can_undo)
         self._variations.blockSignals(True)

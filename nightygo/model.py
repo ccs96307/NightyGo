@@ -61,6 +61,46 @@ class GoGame:
         """Whether at least one move can be undone."""
         return bool(self._undo_stack)
 
+    def set_setup_stones(
+        self,
+        black: tuple[Point, ...] = (),
+        white: tuple[Point, ...] = (),
+        empty: tuple[Point, ...] = (),
+        to_play: int | None = None,
+    ) -> None:
+        """Apply SGF setup points and reset repetition history at this node."""
+        candidate = [list(row) for row in self._board]
+        for x, y in empty:
+            self._validate_setup_point(x, y)
+            candidate[y][x] = EMPTY
+        for x, y in black:
+            self._validate_setup_point(x, y)
+            candidate[y][x] = BLACK
+        for x, y in white:
+            self._validate_setup_point(x, y)
+            candidate[y][x] = WHITE
+        if to_play is not None and to_play not in (BLACK, WHITE):
+            raise ValueError("to_play must be BLACK or WHITE")
+
+        self._board = tuple(tuple(row) for row in candidate)
+        if to_play is not None:
+            self.to_play = to_play
+        self.last_move = None
+        self._consecutive_passes = 0
+        self.is_finished = False
+        self._position_history = [self._board]
+        self._undo_stack.clear()
+
+    def set_player_to_play(self, color: int) -> None:
+        """Set the next color explicitly, as required by SGF PL or move nodes."""
+        if color not in (BLACK, WHITE):
+            raise ValueError("color must be BLACK or WHITE")
+        self.to_play = color
+
+    def _validate_setup_point(self, x: int, y: int) -> None:
+        if not (0 <= x < self.size and 0 <= y < self.size):
+            raise ValueError(f"Setup point {(x, y)} is outside the board")
+
     def play(self, x: int, y: int) -> Move:
         """Play at (x, y), capture surrounded groups, and advance the turn."""
         if self.is_finished:

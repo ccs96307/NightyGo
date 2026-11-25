@@ -2,7 +2,8 @@
 
 English | [繁體中文](README.zh-TW.md)
 
-A Go game record editor.
+A Go game record editor built with PySide6. It supports move previews, placement
+sound, undo, and SGF import/export with variation navigation.
 
 ## Development setup
 
@@ -13,6 +14,11 @@ uv sync --locked
 uv run python -m nightygo
 ```
 
-## Original prototype
+## Features
 
-The original prototype is version 0.0.2 from 2019. Its initial roadmap included SGF import/export, a variation tree, coordinates, move numbers, and UI improvements. These features are being developed in this branch.
+- Play and pass on a 19×19 board, with captures, suicide prevention, and simple ko.
+- Preview a translucent stone before placing it and hear a placement sound.
+- Undo moves and browse SGF game variations.
+- Import and export SGF collections while preserving annotations and alternate lines.
+
+Use **File → Open SGF** to load a record and **File → Save SGF** to save it.

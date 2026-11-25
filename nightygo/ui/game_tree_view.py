@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from nightygo.model import BLACK, WHITE
@@ -101,8 +103,15 @@ class GameTreeView(QtWidgets.QGraphicsView):
         self._board_size = 19
         self._language = "en"
         self._theme = "Dark"
+        self._motion_level = "full"
         self._accent = QtGui.QColor("#69e2cf")
         self._connector = QtGui.QColor("#506178")
+        self._path_highlights: list[QtWidgets.QGraphicsPathItem] = []
+        self._path_animation_started = 0.0
+        self._path_animation_timer = QtCore.QTimer(self)
+        self._path_animation_timer.setInterval(16)
+        self._path_animation_timer.timeout.connect(self._advance_path_highlight)
+        self._scroll_animation_group: QtCore.QParallelAnimationGroup | None = None
         self.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
 
     def set_theme(self, theme: str) -> None:
@@ -125,6 +134,19 @@ class GameTreeView(QtWidgets.QGraphicsView):
         if self._root is not None:
             self.set_tree(self._root, self._current, self._board_size)
 
+    def set_motion_level(self, level: str) -> None:
+        """Enable or suppress tree selection and path motion."""
+        self._motion_level = level if level in ("off", "subtle", "full") else "full"
+        if self._motion_level == "off":
+            self._path_animation_timer.stop()
+            for item in self._path_highlights:
+                item.setOpacity(0.92)
+            self._path_highlights.clear()
+            if self._scroll_animation_group:
+                self._scroll_animation_group.stop()
+                self._scroll_animation_group.deleteLater()
+                self._scroll_animation_group = None
+
     def set_stone_material(self, material: str) -> None:
         """Set the material used for move markers in the tree."""
         self._stone_material = {
@@ -137,10 +159,21 @@ class GameTreeView(QtWidgets.QGraphicsView):
 
     def set_tree(self, root: SgfNode, current: SgfNode, board_size: int) -> None:
         """Replace the drawing with the supplied SGF tree and selection."""
+        previous_current = self._current
+        animate_selection = (
+            previous_current is not None
+            and previous_current is not current
+            and self._motion_level != "off"
+            and self.isVisible()
+        )
+        self._path_animation_timer.stop()
+        self._path_highlights.clear()
         self._root = root
         self._current = current
         self._board_size = board_size
         self._scene.clear()
+        selected_path = _find_path(root, current)
+        selected_path_ids = {id(node) for node in selected_path}
         diameter = max(24.0, self._font_size * 1.8)
         node_radius = max(12.0, self._font_size * 0.9)
         x_spacing = diameter + 48.0
@@ -204,6 +237,13 @@ class GameTreeView(QtWidgets.QGraphicsView):
                     )
                 pen = QtGui.QPen(self._connector, 1.8)
                 self._scene.addPath(path, pen)
+                if id(parent) in selected_path_ids and id(child) in selected_path_ids:
+                    active_pen = QtGui.QPen(self._accent, 3.4)
+                    active_pen.setCapStyle(QtCore.Qt.PenCapStyle.RoundCap)
+                    active_path = self._scene.addPath(path, active_pen)
+                    active_path.setZValue(0.5)
+                    active_path.setOpacity(0.0 if animate_selection else 0.92)
+                    self._path_highlights.append(active_path)
 
         for node in _walk_nodes(root):
             key = id(node)
@@ -244,7 +284,49 @@ class GameTreeView(QtWidgets.QGraphicsView):
             if isinstance(item, _MoveItem) and item.node is current
         ]
         if selected_items:
-            self.centerOn(selected_items[0])
+            if animate_selection:
+                self._animate_scroll_to(selected_items[0])
+                if self._path_highlights:
+                    self._path_animation_started = time.monotonic()
+                    self._path_animation_timer.start()
+            else:
+                self.centerOn(selected_items[0])
+
+    def _advance_path_highlight(self) -> None:
+        progress = min(1.0, (time.monotonic() - self._path_animation_started) / 0.18)
+        eased = 1.0 - (1.0 - progress) ** 3
+        for item in self._path_highlights:
+            item.setOpacity(0.92 * eased)
+        if progress >= 1.0:
+            self._path_animation_timer.stop()
+
+    def _animate_scroll_to(self, item: QtWidgets.QGraphicsItem) -> None:
+        if self._scroll_animation_group:
+            self._scroll_animation_group.stop()
+            self._scroll_animation_group.deleteLater()
+        center = self.mapFromScene(item.sceneBoundingRect().center())
+        offset_x = center.x() - self.viewport().width() / 2
+        offset_y = center.y() - self.viewport().height() / 2
+        group = QtCore.QParallelAnimationGroup(self)
+        duration = 150 if self._motion_level == "subtle" else 210
+        for bar, offset in (
+            (self.horizontalScrollBar(), offset_x),
+            (self.verticalScrollBar(), offset_y),
+        ):
+            animation = QtCore.QPropertyAnimation(bar, b"value", group)
+            animation.setDuration(duration)
+            animation.setStartValue(bar.value())
+            animation.setEndValue(max(bar.minimum(), min(bar.maximum(), int(bar.value() + offset))))
+            animation.setEasingCurve(QtCore.QEasingCurve.Type.OutCubic)
+            group.addAnimation(animation)
+        group.finished.connect(lambda group=group: self._finish_scroll_animation(group))
+        self._scroll_animation_group = group
+        group.start()
+
+    def _finish_scroll_animation(self, group: QtCore.QParallelAnimationGroup) -> None:
+        if self._scroll_animation_group is group:
+            self._scroll_animation_group = None
+        group.deleteLater()
 
 
 def _walk_nodes(root: SgfNode):
@@ -253,6 +335,17 @@ def _walk_nodes(root: SgfNode):
         node = pending.pop()
         yield node
         pending.extend(reversed(node.children))
+
+
+def _find_path(root: SgfNode, target: SgfNode) -> list[SgfNode]:
+    """Return the root-to-node path, or an empty list if the target is detached."""
+    pending: list[tuple[SgfNode, list[SgfNode]]] = [(root, [root])]
+    while pending:
+        node, path = pending.pop()
+        if node is target:
+            return path
+        pending.extend((child, [*path, child]) for child in reversed(node.children))
+    return []
 
 
 def _format_point(value: str, board_size: int) -> str:

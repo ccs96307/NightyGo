@@ -38,6 +38,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self._library = GameLibrary(self._settings)
         self._font_size = int(self._settings.value("font_size", 14))
         self._ui_theme = str(self._settings.value("ui_theme", "Dark"))
+        self._motion_level = str(self._settings.value("motion_level", ""))
+        if self._motion_level not in ("off", "subtle", "full"):
+            self._motion_level = (
+                "full"
+                if self._settings.value("animations_enabled", True, type=bool)
+                else "off"
+            )
         self._apply_theme(self._ui_theme)
         self._set_font_size(self._font_size)
         self._controller = GameController(self)
@@ -61,9 +68,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._board.set_ui_theme(self._ui_theme)
         self._board.set_board_material(self._settings.value("board_material", "Classic wood"))
         self._board.set_stone_material(self._settings.value("stone_material", "Traditional"))
-        self._board.set_animations_enabled(
-            self._settings.value("animations_enabled", True, type=bool)
-        )
+        self._board.set_motion_level(self._motion_level)
         self._board.set_game(self.game)
         self._board.point_clicked.connect(self._play_at)
 
@@ -101,6 +106,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._game_tree.set_stone_material(
             self._settings.value("stone_material", "Traditional")
         )
+        self._game_tree.set_motion_level(self._motion_level)
 
         self._analysis_status = QtWidgets.QLabel(self._t("Configure KataGo in AI Model Center"))
         self._analysis_summary = QtWidgets.QLabel("No analysis available")
@@ -1020,8 +1026,10 @@ class MainWindow(QtWidgets.QMainWindow):
         font_size.setRange(10, 30)
         font_size.setSuffix(" pt")
         font_size.setValue(self._font_size)
-        animations_enabled = QtWidgets.QCheckBox(dialog)
-        animations_enabled.setChecked(self._settings.value("animations_enabled", True, type=bool))
+        motion_selector = QtWidgets.QComboBox(dialog)
+        for level, label in (("off", "Off"), ("subtle", "Subtle"), ("full", "Full")):
+            motion_selector.addItem(self._t(label), level)
+        motion_selector.setCurrentIndex(motion_selector.findData(self._motion_level))
         theme_selector = QtWidgets.QComboBox(dialog)
         for theme in ("Dark", "Warm light"):
             theme_selector.addItem(self._t(theme), theme)
@@ -1058,7 +1066,7 @@ class MainWindow(QtWidgets.QMainWindow):
         form = QtWidgets.QFormLayout()
         form.addRow(self._t("Application font size"), font_size)
         form.addRow(self._t("Application theme"), theme_selector)
-        form.addRow(self._t("Animated board backgrounds"), animations_enabled)
+        form.addRow(self._t("Motion effects"), motion_selector)
         form.addRow(self._t("Go stone placement sound"), sound_row)
         form.addRow(self._t("Board texture"), board_selector)
         form.addRow(self._t("Stone texture"), stone_selector)
@@ -1082,26 +1090,30 @@ class MainWindow(QtWidgets.QMainWindow):
 
         size = font_size.value()
         theme = theme_selector.currentData()
-        enable_animations = animations_enabled.isChecked()
+        selected_motion = str(motion_selector.currentData())
         selected_sound = sound_selector.currentData()
         selected_board = board_selector.currentData()
         selected_stones = stone_selector.currentData()
         self._settings.setValue("font_size", size)
         self._settings.setValue("ui_theme", theme)
-        self._settings.setValue("animations_enabled", enable_animations)
+        self._settings.setValue("motion_level", selected_motion)
+        self._settings.setValue("animations_enabled", selected_motion != "off")
         self._settings.setValue("placement_sound", selected_sound)
         self._settings.setValue("board_material", selected_board)
         self._settings.setValue("stone_material", selected_stones)
         self._stone_sound.set_sound(selected_sound)
         self._board.set_board_material(selected_board)
-        self._board.set_animations_enabled(enable_animations)
+        self._motion_level = selected_motion
+        self._board.set_motion_level(selected_motion)
         self._board.set_stone_material(selected_stones)
         self._game_tree.set_stone_material(selected_stones)
+        self._game_tree.set_motion_level(selected_motion)
         logger.info(
-            "Preferences updated: font=%d pt, board=%s, stones=%s, sound=%s",
+            "Preferences updated: font=%d pt, board=%s, stones=%s, motion=%s, sound=%s",
             size,
             selected_board,
             selected_stones,
+            selected_motion,
             selected_sound,
         )
         self._set_font_size(size)

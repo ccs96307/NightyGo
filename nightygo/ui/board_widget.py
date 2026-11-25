@@ -1,6 +1,7 @@
 """PySide6 board renderer and pointer interaction."""
 
 import math
+import time
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
@@ -18,6 +19,7 @@ class BoardWidget(QtWidgets.QWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._game: GoGame | None = None
+        self._board_snapshot: tuple[tuple[int, ...], ...] | None = None
         self._hover_point: tuple[int, int] | None = None
         self._analysis_points: tuple[tuple[int, int, int], ...] = ()
         self._ownership: tuple[float, ...] = ()
@@ -27,11 +29,20 @@ class BoardWidget(QtWidgets.QWidget):
         self._board_material = "wood"
         self._stone_material = "classic"
         self._animation_phase = 0.0
-        self._animations_enabled = True
+        self._motion_level = "full"
+        self._stone_transitions: dict[tuple[int, int], tuple[int, str]] = {}
+        self._stone_transition_started = 0.0
+        self._stone_transition_duration = 0.19
+        self._preview_opacity = 0.0
+        self._preview_target_opacity = 0.0
         self._ui_theme = "Dark"
         self._theme_animation_timer = QtCore.QTimer(self)
-        self._theme_animation_timer.setInterval(50)
+        self._theme_animation_timer.setInterval(33)
         self._theme_animation_timer.timeout.connect(self._advance_theme_animation)
+        self._interaction_timer = QtCore.QTimer(self)
+        self._interaction_timer.setInterval(16)
+        self._interaction_timer.timeout.connect(self._advance_interactions)
+        self._last_interaction_tick = 0.0
         self.setMinimumSize(440, 440)
         self.setMouseTracking(True)
 
@@ -49,8 +60,19 @@ class BoardWidget(QtWidgets.QWidget):
 
     def set_animations_enabled(self, enabled: bool) -> None:
         """Enable or stop ambient board animation."""
-        self._animations_enabled = enabled
+        self.set_motion_level("full" if enabled else "off")
+
+    def set_motion_level(self, level: str) -> None:
+        """Set the intensity of ambient and interaction motion."""
+        if level not in ("off", "subtle", "full"):
+            level = "full"
+        self._motion_level = level
+        self._theme_animation_timer.setInterval(100 if level == "subtle" else 33)
         self._sync_theme_animation()
+        if level == "off":
+            self._stone_transitions.clear()
+            self._preview_opacity = self._preview_target_opacity
+            self._interaction_timer.stop()
         self.update()
 
     def set_ui_theme(self, theme: str) -> None:
@@ -67,13 +89,15 @@ class BoardWidget(QtWidgets.QWidget):
         super().hideEvent(event)
 
     def _sync_theme_animation(self) -> None:
-        if self.isVisible() and self._board_material != "wood" and self._animations_enabled:
+        if self.isVisible() and self._board_material != "wood" and self._motion_level != "off":
             self._theme_animation_timer.start()
         else:
             self._theme_animation_timer.stop()
 
     def _advance_theme_animation(self) -> None:
-        self._animation_phase = (self._animation_phase + 0.055) % (2 * math.pi)
+        self._animation_phase = (
+            self._animation_phase + (0.018 if self._motion_level == "subtle" else 0.055)
+        ) % (2 * math.pi)
         side = min(self.width(), self.height())
         surface = QtCore.QRect(
             int((self.width() - side) / 2),
@@ -82,6 +106,28 @@ class BoardWidget(QtWidgets.QWidget):
             side,
         )
         self.update(surface)
+
+    def _advance_interactions(self) -> None:
+        now = time.monotonic()
+        elapsed = min(0.05, now - self._last_interaction_tick)
+        self._last_interaction_tick = now
+        delta = elapsed / (0.09 if self._motion_level == "subtle" else 0.075)
+        if self._preview_opacity < self._preview_target_opacity:
+            self._preview_opacity = min(self._preview_target_opacity, self._preview_opacity + delta)
+        elif self._preview_opacity > self._preview_target_opacity:
+            self._preview_opacity = max(self._preview_target_opacity, self._preview_opacity - delta)
+        active_transition = time.monotonic() - self._stone_transition_started < self._stone_transition_duration
+        if not active_transition:
+            self._stone_transitions.clear()
+        self.update()
+        if not active_transition and abs(self._preview_opacity - self._preview_target_opacity) < 0.001:
+            self._interaction_timer.stop()
+
+    def _start_interaction_animation(self) -> None:
+        if self._motion_level == "off":
+            return
+        self._last_interaction_tick = time.monotonic()
+        self._interaction_timer.start()
 
     def set_stone_material(self, material: str) -> None:
         """Set the material used to render placed and preview stones."""
@@ -95,7 +141,28 @@ class BoardWidget(QtWidgets.QWidget):
 
     def set_game(self, game: GoGame) -> None:
         """Set the model snapshot to draw."""
+        previous = self._board_snapshot
+        transitions: dict[tuple[int, int], tuple[int, str]] = {}
+        if previous is not None and previous != game.board and self._motion_level != "off":
+            for y, (old_row, new_row) in enumerate(zip(previous, game.board)):
+                for x, (old_color, new_color) in enumerate(zip(old_row, new_row)):
+                    if old_color == new_color:
+                        continue
+                    if old_color:
+                        transitions[(x, y)] = (old_color, "out")
+                    if new_color:
+                        transitions[(x, y)] = (new_color, "in")
+            if len(transitions) <= 18:
+                self._stone_transitions = transitions
+                self._stone_transition_started = time.monotonic()
+                self._stone_transition_duration = 0.14 if self._motion_level == "subtle" else 0.19
+                self._start_interaction_animation()
+            else:
+                self._stone_transitions.clear()
+        elif previous == game.board:
+            self._stone_transitions.clear()
         self._game = game
+        self._board_snapshot = game.board
         self.update()
 
     def set_analysis_moves(self, vertices: list[str], board_size: int) -> None:
@@ -170,11 +237,21 @@ class BoardWidget(QtWidgets.QWidget):
             point = None
         if point != self._hover_point:
             self._hover_point = point
+            self._preview_target_opacity = 1.0 if point is not None else 0.0
+            if self._motion_level != "off":
+                self._start_interaction_animation()
+            else:
+                self._preview_opacity = self._preview_target_opacity
             self.update()
         super().mouseMoveEvent(event)
 
     def leaveEvent(self, event: QtCore.QEvent) -> None:
         self._hover_point = None
+        self._preview_target_opacity = 0.0
+        if self._motion_level != "off":
+            self._start_interaction_animation()
+        else:
+            self._preview_opacity = 0.0
         self.update()
         super().leaveEvent(event)
 
@@ -256,10 +333,33 @@ class BoardWidget(QtWidgets.QWidget):
         diameter = step * 0.88
         for y, row in enumerate(self._game.board):
             for x, color in enumerate(row):
-                if color == EMPTY:
+                transition = self._stone_transitions.get((x, y))
+                if color == EMPTY and not transition:
                     continue
                 center = QtCore.QPointF(left + x * step, top + y * step)
-                target = QtCore.QRectF(center.x() - diameter / 2, center.y() - diameter / 2, diameter, diameter)
+                stone_color, transition_kind = transition if transition else (color, "")
+                transition_progress = min(
+                    1.0,
+                    max(0.0, (time.monotonic() - self._stone_transition_started) / self._stone_transition_duration),
+                ) if transition else 1.0
+                if transition_kind == "in":
+                    eased = 1.0 - (1.0 - transition_progress) ** 3
+                    scale = 0.68 + 0.32 * eased + 0.06 * math.sin(math.pi * transition_progress) * (1 - transition_progress)
+                    opacity = eased
+                elif transition_kind == "out":
+                    scale = 1.0 - 0.22 * transition_progress
+                    opacity = 1.0 - transition_progress
+                else:
+                    scale = 1.0
+                    opacity = 1.0
+                target = QtCore.QRectF(
+                    center.x() - diameter * scale / 2,
+                    center.y() - diameter * scale / 2,
+                    diameter * scale,
+                    diameter * scale,
+                )
+                painter.save()
+                painter.setOpacity(opacity)
                 shadow_center = QtCore.QPointF(
                     center.x() + diameter * 0.08,
                     center.y() + diameter * 0.15,
@@ -278,9 +378,10 @@ class BoardWidget(QtWidgets.QWidget):
                     diameter * 0.56,
                     diameter * 0.45,
                 )
-                pixmap = stone_pixmap(color, self._stone_material)
+                pixmap = stone_pixmap(stone_color, self._stone_material)
                 painter.drawPixmap(target, pixmap, QtCore.QRectF(pixmap.rect()))
                 self._draw_sphere_lighting(painter, target)
+                painter.restore()
 
         move = self._game.last_move
         if move is not None and move.point is not None:
@@ -297,7 +398,10 @@ class BoardWidget(QtWidgets.QWidget):
                 center = QtCore.QPointF(left + x * step, top + y * step)
                 target = QtCore.QRectF(center.x() - diameter / 2, center.y() - diameter / 2, diameter, diameter)
                 preview = stone_preview(self._game.to_play, self._stone_material)
+                painter.save()
+                painter.setOpacity(self._preview_opacity)
                 painter.drawPixmap(target, preview, QtCore.QRectF(preview.rect()))
+                painter.restore()
         self._draw_markup(painter, left, top, step)
         painter.restore()
         painter.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255, 36 if dark else 120), 1))

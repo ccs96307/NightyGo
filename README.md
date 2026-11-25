@@ -30,7 +30,7 @@ Application logs include timestamps, severity levels, and module names. Set
 - Search recent records by players, event, result and custom tags; unsaved games receive recovery snapshots.
 - Configure the KataGo engine and model together in **Settings → AI Model Center**. It recommends model tiers from available RAM / NVIDIA VRAM, installs a compatible official OpenCL engine on 64-bit Linux and Windows, and downloads/selects network models.
 - Use KataGo for asynchronous candidate moves, win rate, score lead and ownership; review a full main line with a win-rate graph and jump links for major swings.
-- Preview the Qt Quick board from **View → QML workspace preview**; choose a dark or warm-light theme, font size and animated sky preference in Settings.
+- Preview the Qt Quick board from **View → QML workspace preview**; choose a dark or warm-light theme, font size and motion level (off / subtle / full) in Settings. Move placement, capture, preview and tree navigation use short, low-distraction transitions.
 
 Use **File → Open SGF** to load a record and **File → Save SGF** to save it.
 AI setup is managed in AI Model Center. Select a network and choose **Download

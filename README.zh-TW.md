@@ -27,7 +27,7 @@ uv run --locked python -m nightygo
 - 搜尋近期棋譜的棋手、賽事、結果和自訂標籤；未儲存棋局會提示並自動建立復原快照。
 - 在「Settings → AI Model Center」一併設定 KataGo 引擎與模型；依可用 RAM／NVIDIA VRAM 推薦模型級別，並可下載模型及在 64 位元 Linux／Windows 安裝相容的官方 OpenCL 引擎。
 - 使用 KataGo 非同步查看候選著、勝率、目差與 ownership；整盤覆盤可檢視勝率曲線並跳回重大波動棋步。
-- 於「View → QML workspace preview」試用 Qt Quick 棋盤；「Settings → Preferences」可選深色／暖白主題、字級和星空背景動畫。
+- 於「View → QML workspace preview」試用 Qt Quick 棋盤；「Settings → Preferences」可選深色／暖白主題、字級與動態效果強度（關閉／細緻／完整）。落子、提子、預覽和棋譜樹導覽都有短促且克制的轉場。
 
 使用「File → Open SGF」開啟棋譜，使用「File → Save SGF」儲存。
 AI 設定集中在 AI Model Center。選擇模型後按「下載引擎並完成 AI 設定」，即可在同一流程安裝官方引擎、下載並設為目前模型；也可在引擎區選擇既有執行檔並調整進階啟動參數。模型與自動安裝的引擎會存放於應用程式資料目錄。自動安裝目前支援 64 位元 Linux／Windows 的官方 OpenCL 套件；其他系統可指定既有 KataGo 執行檔。記憶體建議依可用 RAM／VRAM 和模型架構估算，實際需求也會受引擎後端和搜尋快取影響。Preferences 可預聽落子音效、調整字級、主題、動畫與棋盤／棋子材質；設定會記住。

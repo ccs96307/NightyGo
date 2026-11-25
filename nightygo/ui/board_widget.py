@@ -18,6 +18,7 @@ class BoardWidget(QtWidgets.QWidget):
         super().__init__(parent)
         self._game: GoGame | None = None
         self._hover_point: tuple[int, int] | None = None
+        self._analysis_points: tuple[tuple[int, int, int], ...] = ()
         self._board_material = "wood"
         self._stone_material = "classic"
         self._animation_phase = 0.0
@@ -77,6 +78,23 @@ class BoardWidget(QtWidgets.QWidget):
     def set_game(self, game: GoGame) -> None:
         """Set the model snapshot to draw."""
         self._game = game
+        self.update()
+
+    def set_analysis_moves(self, vertices: list[str], board_size: int) -> None:
+        """Set ranked GTP candidate vertices for lightweight board overlays."""
+        columns = "ABCDEFGHJKLMNOPQRSTUVWXYZ"
+        points = []
+        for rank, vertex in enumerate(vertices):
+            if len(vertex) < 2 or vertex[0] not in columns:
+                continue
+            try:
+                x = columns.index(vertex[0])
+                y = board_size - int(vertex[1:])
+            except ValueError:
+                continue
+            if 0 <= x < board_size and 0 <= y < board_size:
+                points.append((x, y, rank))
+        self._analysis_points = tuple(points)
         self.update()
 
     def _grid_geometry(self) -> tuple[float, float, float]:
@@ -161,6 +179,7 @@ class BoardWidget(QtWidgets.QWidget):
             painter.drawLine(QtCore.QPointF(left, top + offset), QtCore.QPointF(last, top + offset))
 
         self._draw_star_points(painter, left, top, step)
+        self._draw_analysis_points(painter, left, top, step)
         diameter = step * 0.88
         for y, row in enumerate(self._game.board):
             for x, color in enumerate(row):
@@ -207,6 +226,37 @@ class BoardWidget(QtWidgets.QWidget):
                 preview = stone_preview(self._game.to_play, self._stone_material)
                 painter.drawPixmap(target, preview, QtCore.QRectF(preview.rect()))
         painter.end()
+
+    def _draw_analysis_points(
+        self,
+        painter: QtGui.QPainter,
+        left: float,
+        top: float,
+        step: float,
+    ) -> None:
+        if not self._analysis_points:
+            return
+        colors = ("#ffd166", "#58d6c0", "#6db8ff", "#c38cff")
+        for x, y, rank in self._analysis_points:
+            if self._game.board[y][x] != EMPTY:
+                continue
+            center = QtCore.QPointF(left + x * step, top + y * step)
+            radius = step * (0.34 if rank == 0 else 0.29)
+            fill = QtGui.QColor(colors[min(rank, len(colors) - 1)])
+            fill.setAlpha(205 if rank == 0 else 165)
+            painter.setPen(QtGui.QPen(QtGui.QColor("#f6f7fb"), max(1.0, step * 0.035)))
+            painter.setBrush(fill)
+            painter.drawEllipse(center, radius, radius)
+            painter.setPen(QtGui.QColor("#151922"))
+            font = painter.font()
+            font.setBold(True)
+            font.setPointSizeF(max(7.0, step * 0.28))
+            painter.setFont(font)
+            painter.drawText(
+                QtCore.QRectF(center.x() - radius, center.y() - radius, radius * 2, radius * 2),
+                QtCore.Qt.AlignmentFlag.AlignCenter,
+                str(rank + 1),
+            )
 
     @staticmethod
     def _draw_sphere_lighting(painter: QtGui.QPainter, target: QtCore.QRectF) -> None:

@@ -31,6 +31,7 @@ class AnalysisMove:
     winrate: float | None = None
     score_lead: float | None = None
     principal_variation: tuple[str, ...] = ()
+    order: int | None = None
 
 
 @dataclass(frozen=True)
@@ -40,14 +41,33 @@ class _Command:
     tag: str = ""
 
 
+_INFO_MOVE = re.compile(
+    r"(?:^|\s)info\s+move\s+(\S+)(.*?)(?=\s+info\s+(?:move|rootInfo|ownership|ownershipStdev|movesOwnership|movesOwnershipStdev)\b|$)"
+)
+
+
 def parse_katago_info(line: str) -> AnalysisMove | None:
-    """Parse a KataGo ``info move`` line, ignoring unrelated diagnostics."""
-    parts = line.strip().split()
-    if len(parts) < 3 or parts[0] != "info" or parts[1] != "move":
+    """Parse one candidate from KataGo's whitespace-delimited info output."""
+    matches = parse_katago_info_lines(line)
+    return matches[0] if matches else None
+
+
+def parse_katago_info_lines(line: str) -> tuple[AnalysisMove, ...]:
+    """Parse all candidates from a KataGo output line."""
+    analyses = []
+    for match in _INFO_MOVE.finditer(line.strip()):
+        analysis = _parse_info_move(*match.groups())
+        if analysis is not None:
+            analyses.append(analysis)
+    return tuple(analyses)
+
+
+def _parse_info_move(vertex: str, payload: str) -> AnalysisMove | None:
+    if not vertex:
         return None
-    vertex = parts[2]
+    parts = payload.strip().split()
     values: dict[str, str] = {}
-    index = 3
+    index = 0
     while index < len(parts):
         key = parts[index]
         index += 1
@@ -61,14 +81,18 @@ def parse_katago_info(line: str) -> AnalysisMove | None:
         visits = int(values.get("visits", "0"))
         winrate = float(values["winrate"]) if "winrate" in values else None
         score_lead = float(values["scoreLead"]) if "scoreLead" in values else None
+        order = int(values["order"]) if "order" in values else None
     except ValueError:
         return None
+    if winrate is not None and winrate > 1.0 and winrate <= 10000:
+        winrate /= 10000.0
     return AnalysisMove(
         vertex=vertex,
         visits=visits,
         winrate=winrate,
         score_lead=score_lead,
         principal_variation=tuple(values.get("pv", "").split()),
+        order=order,
     )
 
 
@@ -173,6 +197,12 @@ class GtpEngine(QtCore.QObject):
         for command in (f"boardsize {board_size}", "clear_board", f"komi {komi:g}"):
             self.send_command(command)
 
+    def set_stones(self, black: tuple[str, ...], white: tuple[str, ...]) -> int | None:
+        """Set an arbitrary current board position using KataGo's GTP extension."""
+        arguments = [f"B {vertex}" for vertex in black]
+        arguments.extend(f"W {vertex}" for vertex in white)
+        return self.send_command("set_position" + (" " + " ".join(arguments) if arguments else ""))
+
     def play_move(self, color: str, vertex: str) -> int | None:
         """Send a move to the engine."""
         normalized = color.lower()
@@ -189,13 +219,20 @@ class GtpEngine(QtCore.QObject):
             return None
         return self.send_command(f"genmove {normalized}")
 
-    def start_analysis(self, interval_ms: int = 500) -> int | None:
+    def start_analysis(self, color: str = "B", interval_ms: int = 500) -> int | None:
         """Start KataGo's streaming analysis command."""
         if self._status != self.READY:
             self.errorOccurred.emit("The GTP engine is not ready for analysis")
             return None
+        normalized = color.upper()
+        if normalized not in ("B", "W"):
+            self.errorOccurred.emit(f"Invalid analysis color: {color}")
+            return None
         self._set_status(self.ANALYZING)
-        return self._enqueue(f"kata-analyze {max(50, interval_ms)}", tag="analysis")
+        return self._enqueue(
+            f"kata-analyze {normalized} {max(5, interval_ms // 10)} rootInfo true ownership true",
+            tag="analysis",
+        )
 
     def stop_analysis(self) -> None:
         """Interrupt a KataGo analysis without waiting for it to finish first."""
@@ -237,10 +274,12 @@ class GtpEngine(QtCore.QObject):
         while "\n" in self._stdout_buffer:
             line, self._stdout_buffer = self._stdout_buffer.split("\n", 1)
             line = line.rstrip("\r")
-            if line.startswith("info move "):
-                analysis = parse_katago_info(line)
-                if analysis is not None:
+            if line.startswith("info "):
+                analyses = parse_katago_info_lines(line)
+                for analysis in analyses:
                     self.analysisUpdated.emit(analysis)
+                if not analyses:
+                    self.outputReceived.emit(line)
                 continue
             if line.startswith(("=", "?")):
                 self._response_lines = [line]

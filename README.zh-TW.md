@@ -25,10 +25,10 @@ uv run --locked python -m nightygo
 - 匯入與匯出 SGF 棋譜集，保留註解與其他變化線。
 - 編輯棋局資訊、棋步註解、主線／分支和棋盤上的三角形、方形、圓形、叉號、標籤、線與箭頭。
 - 搜尋近期棋譜的棋手、賽事、結果和自訂標籤；未儲存棋局會提示並自動建立復原快照。
-- 設定本機 KataGo 執行檔和參數，以非同步方式查看候選著、勝率、目差與 ownership；整盤覆盤可檢視勝率曲線並跳回重大波動棋步。
-- 由「Settings → AI Model Center」即時瀏覽 KataGo 官方模型目錄；依目前可用 RAM 與可讀取的 NVIDIA VRAM 推薦模型級別，可直接下載、取消或設為目前模型。
+- 在「Settings → AI Model Center」一併設定 KataGo 引擎與模型；依可用 RAM／NVIDIA VRAM 推薦模型級別，並可下載模型及在 64 位元 Linux／Windows 安裝相容的官方 OpenCL 引擎。
+- 使用 KataGo 非同步查看候選著、勝率、目差與 ownership；整盤覆盤可檢視勝率曲線並跳回重大波動棋步。
 - 於「View → QML workspace preview」試用 Qt Quick 棋盤；「Settings → Preferences」可選深色／暖白主題、字級和星空背景動畫。
 
 使用「File → Open SGF」開啟棋譜，使用「File → Save SGF」儲存。
-AI 分析需要 KataGo 執行檔；模型可在 AI Model Center 直接下載。模型存入應用程式資料目錄下的 `models/`，選擇「下載並設為目前模型」後，NightyGo 會在啟動引擎時自動帶入模型路徑。記憶體建議是依可用 RAM／VRAM 和架構級別估算，實際需求也會受引擎後端和搜尋快取設定影響。Preferences 可預聽落子音效、調整字級、主題、動畫與棋盤／棋子材質；設定會記住。
+AI 設定集中在 AI Model Center。選擇模型後按「下載引擎並完成 AI 設定」，即可在同一流程安裝官方引擎、下載並設為目前模型；也可在引擎區選擇既有執行檔並調整進階啟動參數。模型與自動安裝的引擎會存放於應用程式資料目錄。自動安裝目前支援 64 位元 Linux／Windows 的官方 OpenCL 套件；其他系統可指定既有 KataGo 執行檔。記憶體建議依可用 RAM／VRAM 和模型架構估算，實際需求也會受引擎後端和搜尋快取影響。Preferences 可預聽落子音效、調整字級、主題、動畫與棋盤／棋子材質；設定會記住。
 可使用頂端工具列的語言選單，在 English、繁體中文、简体中文、日本語與 한국어 之間切換；選擇會自動記住。

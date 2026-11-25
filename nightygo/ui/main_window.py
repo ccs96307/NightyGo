@@ -60,18 +60,34 @@ class MainWindow(QtWidgets.QMainWindow):
         controls.addWidget(self._capture_label)
         controls.addWidget(self._undo_button)
         controls.addWidget(pass_button)
+        controls_widget = QtWidgets.QWidget(self)
+        controls_widget.setLayout(controls)
+        controls_widget.setMinimumHeight(72)
+        controls_widget.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Expanding,
+            QtWidgets.QSizePolicy.Policy.Expanding,
+        )
+        self._controls_dock = QtWidgets.QDockWidget("Controls", self)
+        self._controls_dock.setObjectName("controlsDock")
+        self._controls_dock.setWidget(controls_widget)
 
         layout = QtWidgets.QVBoxLayout()
         layout.addWidget(self._board, 1)
-        layout.addLayout(controls)
         central_widget = QtWidgets.QWidget(self)
         central_widget.setLayout(layout)
         self.setCentralWidget(central_widget)
         self.addDockWidget(QtCore.Qt.DockWidgetArea.RightDockWidgetArea, self._tree_dock)
+        self.addDockWidget(QtCore.Qt.DockWidgetArea.BottomDockWidgetArea, self._controls_dock)
         view_menu = self.menuBar().addMenu("View")
         view_menu.addAction(self._tree_dock.toggleViewAction())
+        view_menu.addAction(self._controls_dock.toggleViewAction())
         self.setWindowTitle("NightyGo")
         self.resize(860, 760)
+        self.resizeDocks(
+            [self._controls_dock],
+            [100],
+            QtCore.Qt.Orientation.Vertical,
+        )
         self._refresh()
 
     def _create_file_menu(self) -> None:

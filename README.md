@@ -10,7 +10,7 @@ This project uses uv and PySide6. From the repository root, run:
 
 ```bash
 uv sync --locked
-uv run python main.py
+uv run python -m nightygo
 ```
 
 ## Original prototype

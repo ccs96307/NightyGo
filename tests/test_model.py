@@ -138,6 +138,49 @@ class GoGameTests(unittest.TestCase):
         with self.assertRaisesRegex(IllegalMove, "no moves"):
             game.undo()
 
+    def test_redo_restores_move_and_capture_state(self) -> None:
+        game = GoGame(size=9)
+        game.play(0, 1)
+        game.play(1, 1)
+        game.play(1, 0)
+        game.play(8, 8)
+        game.play(2, 1)
+        game.play(7, 8)
+        game.play(1, 2)
+        expected_board = game.board
+        expected_captures = game.captures.copy()
+
+        game.undo()
+        replayed = game.redo()
+
+        self.assertEqual(replayed.captured, ((1, 1),))
+        self.assertEqual(game.board, expected_board)
+        self.assertEqual(game.captures, expected_captures)
+        self.assertFalse(game.can_redo)
+
+    def test_new_move_discards_redo_history(self) -> None:
+        game = GoGame(size=9)
+        game.play(4, 4)
+        game.undo()
+        game.play(3, 3)
+
+        self.assertFalse(game.can_redo)
+        with self.assertRaisesRegex(IllegalMove, "no moves to redo"):
+            game.redo()
+
+    def test_redo_restores_two_pass_game_end(self) -> None:
+        game = GoGame(size=9)
+        game.pass_turn()
+        game.pass_turn()
+        game.undo()
+        game.undo()
+
+        game.redo()
+        game.redo()
+
+        self.assertTrue(game.is_finished)
+        self.assertEqual(len(game.moves), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

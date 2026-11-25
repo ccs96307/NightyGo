@@ -50,6 +50,7 @@ class GoGame:
         self._consecutive_passes = 0
         self._position_history = [self._board]
         self._undo_stack: list[_Snapshot] = []
+        self._redo_stack: list[Move] = []
 
     @property
     def board(self) -> Board:
@@ -60,6 +61,11 @@ class GoGame:
     def can_undo(self) -> bool:
         """Whether at least one move can be undone."""
         return bool(self._undo_stack)
+
+    @property
+    def can_redo(self) -> bool:
+        """Whether an undone move can be replayed from this position."""
+        return bool(self._redo_stack)
 
     def set_setup_stones(
         self,
@@ -90,6 +96,7 @@ class GoGame:
         self.is_finished = False
         self._position_history = [self._board]
         self._undo_stack.clear()
+        self._redo_stack.clear()
 
     def set_player_to_play(self, color: int) -> None:
         """Set the next color explicitly, as required by SGF PL or move nodes."""
@@ -145,6 +152,7 @@ class GoGame:
         self.last_move = move
         self._consecutive_passes = 0
         self._position_history.append(new_board)
+        self._redo_stack.clear()
         return move
 
     def pass_turn(self) -> Move:
@@ -159,6 +167,7 @@ class GoGame:
         self._consecutive_passes += 1
         self.is_finished = self._consecutive_passes >= 2
         self._position_history.append(self._board)
+        self._redo_stack.clear()
         return move
 
     def undo(self) -> Move:
@@ -175,7 +184,24 @@ class GoGame:
         self._consecutive_passes = snapshot.consecutive_passes
         self.is_finished = snapshot.is_finished
         self._position_history.pop()
+        self._redo_stack.append(undone)
         return undone
+
+    def redo(self) -> Move:
+        """Replay the most recently undone move, if it remains legal."""
+        if not self._redo_stack:
+            raise IllegalMove("There are no moves to redo")
+        move = self._redo_stack.pop()
+        remaining = self._redo_stack.copy()
+        try:
+            if move.color != self.to_play:
+                raise IllegalMove("The move cannot be redone from this position")
+            replayed = self.pass_turn() if move.point is None else self.play(*move.point)
+        except IllegalMove:
+            self._redo_stack = remaining + [move]
+            raise
+        self._redo_stack = remaining
+        return replayed
 
     def _snapshot(self) -> _Snapshot:
         return _Snapshot(

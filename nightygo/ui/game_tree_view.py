@@ -5,6 +5,7 @@ from __future__ import annotations
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from nightygo.model import BLACK, WHITE
+from nightygo.preview import stone_pixmap
 from nightygo.sgf import SgfNode
 
 
@@ -18,41 +19,48 @@ class _MoveItem(QtWidgets.QGraphicsObject):
         color: int | None,
         selected: bool,
         tooltip: str,
+        font_size: int,
     ) -> None:
         super().__init__()
         self.node = node
         self.move_number = move_number
         self.color = color
         self.selected = selected
+        self.font_size = font_size
+        self.radius = max(12.0, font_size * 0.9)
         self.setToolTip(tooltip)
         self.setAcceptedMouseButtons(QtCore.Qt.MouseButton.LeftButton)
         self.setZValue(1)
 
     def boundingRect(self) -> QtCore.QRectF:
-        return QtCore.QRectF(-13, -13, 26, 26)
+        return QtCore.QRectF(-self.radius, -self.radius, self.radius * 2, self.radius * 2)
 
     def paint(self, painter, _option, _widget=None) -> None:
         painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
-        if self.color == BLACK:
-            fill = QtGui.QColor("#171512")
-            text = QtGui.QColor("#ffffff")
-        elif self.color == WHITE:
-            fill = QtGui.QColor("#fffdf8")
-            text = QtGui.QColor("#24211d")
+        if self.color is None:
+            painter.setPen(QtGui.QPen(QtGui.QColor("#756550"), 1.5))
+            painter.setBrush(QtGui.QColor("#e0b96f"))
+            painter.drawEllipse(self.boundingRect().adjusted(4, 4, -4, -4))
         else:
-            fill = QtGui.QColor("#e0b96f")
-            text = QtGui.QColor("#24211d")
-        border = QtGui.QColor("#d65332" if self.selected else "#443a30")
-        painter.setPen(QtGui.QPen(border, 3 if self.selected else 1.2))
-        painter.setBrush(fill)
-        painter.drawEllipse(self.boundingRect().adjusted(1, 1, -1, -1))
-        if self.move_number:
+            image = stone_pixmap(self.color)
+            image_rect = self.boundingRect().adjusted(1, 1, -1, -1)
+            painter.drawPixmap(image_rect, image, QtCore.QRectF(image.rect()))
+        if self.selected:
+            painter.setPen(QtGui.QPen(QtGui.QColor("#d65332"), 2.5))
+            painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
+            painter.drawEllipse(self.boundingRect().adjusted(0, 0, 0, 0))
+        if self.move_number and self.color is not None:
+            text = QtGui.QColor("#fffdf8" if self.color == BLACK else "#24211d")
             painter.setPen(text)
             font = painter.font()
-            font.setPointSizeF(7.5 if self.move_number < 100 else 6.5)
+            font.setPointSizeF(max(8.0, self.font_size * 0.52))
+            font.setBold(True)
             painter.setFont(font)
-            painter.drawText(self.boundingRect(), QtCore.Qt.AlignmentFlag.AlignCenter,
-                             str(self.move_number))
+            painter.drawText(
+                self.boundingRect(),
+                QtCore.Qt.AlignmentFlag.AlignCenter,
+                str(self.move_number),
+            )
 
     def mousePressEvent(self, event) -> None:
         if event.button() == QtCore.Qt.MouseButton.LeftButton:
@@ -66,9 +74,6 @@ class GameTreeView(QtWidgets.QGraphicsView):
     """Draw move sequences vertically and fork only where SGF branches."""
 
     node_selected = QtCore.Signal(object)
-    _X_SPACING = 76.0
-    _Y_SPACING = 58.0
-
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._scene = QtWidgets.QGraphicsScene(self)
@@ -79,10 +84,27 @@ class GameTreeView(QtWidgets.QGraphicsView):
         self.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.setMinimumWidth(210)
         self.setBackgroundBrush(QtGui.QColor("#faf8f3"))
+        self._font_size = 14
+        self._root = None
+        self._current = None
+        self._board_size = 19
+
+    def set_font_size(self, size: int) -> None:
+        """Resize move labels and nodes with the application font setting."""
+        self._font_size = size
+        if self._root is not None:
+            self.set_tree(self._root, self._current, self._board_size)
 
     def set_tree(self, root: SgfNode, current: SgfNode, board_size: int) -> None:
         """Replace the drawing with the supplied SGF tree and selection."""
+        self._root = root
+        self._current = current
+        self._board_size = board_size
         self._scene.clear()
+        diameter = max(24.0, self._font_size * 1.8)
+        node_radius = max(12.0, self._font_size * 0.9)
+        x_spacing = diameter + 48.0
+        y_spacing = diameter + 32.0
         positions: dict[int, tuple[float, float]] = {}
         metadata: dict[int, tuple[int, int | None]] = {}
         widths: dict[int, float] = {}
@@ -102,7 +124,7 @@ class GameTreeView(QtWidgets.QGraphicsView):
 
         def place(node: SgfNode, x: float, depth: int, move_number: int) -> None:
             key = id(node)
-            positions[key] = (x * self._X_SPACING, depth * self._Y_SPACING)
+            positions[key] = (x * x_spacing, depth * y_spacing)
             black = node.values("B")
             white = node.values("W")
             color = BLACK if black else WHITE if white else None
@@ -125,12 +147,21 @@ class GameTreeView(QtWidgets.QGraphicsView):
             parent_x, parent_y = positions[id(parent)]
             for child in parent.children:
                 child_x, child_y = positions[id(child)]
-                path = QtGui.QPainterPath(QtCore.QPointF(parent_x, parent_y + 12))
+                path = QtGui.QPainterPath(
+                    QtCore.QPointF(parent_x, parent_y + node_radius)
+                )
                 if abs(parent_x - child_x) < 0.01:
-                    path.lineTo(child_x, child_y - 12)
+                    path.lineTo(child_x, child_y - node_radius)
                 else:
                     middle_y = (parent_y + child_y) / 2
-                    path.cubicTo(parent_x, middle_y, child_x, middle_y, child_x, child_y - 12)
+                    path.cubicTo(
+                        parent_x,
+                        middle_y,
+                        child_x,
+                        middle_y,
+                        child_x,
+                        child_y - node_radius,
+                    )
                 pen = QtGui.QPen(QtGui.QColor("#8d8375"), 1.8)
                 self._scene.addPath(path, pen)
 
@@ -149,8 +180,14 @@ class GameTreeView(QtWidgets.QGraphicsView):
             comments = node.values("C")
             if comments:
                 details.append(" ".join(comments))
-            item = _MoveItem(node, number if color is not None else 0, color,
-                             node is current, " · ".join(details))
+            item = _MoveItem(
+                node,
+                number if color is not None else 0,
+                color,
+                node is current,
+                " · ".join(details),
+                self._font_size,
+            )
             item.setPos(*positions[key])
             item.clicked.connect(self.node_selected)
             self._scene.addItem(item)

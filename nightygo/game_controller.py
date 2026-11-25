@@ -1,0 +1,236 @@
+"""Presentation-independent game and SGF application controller."""
+
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+
+from PySide6 import QtCore
+
+from nightygo.model import BLACK, WHITE, GoGame, IllegalMove, Move
+from nightygo.sgf import SgfCollection, SgfError, SgfNode, read_sgf, write_sgf
+from nightygo.sgf_session import SgfGameSession
+
+
+logger = logging.getLogger(__name__)
+
+
+class GameController(QtCore.QObject):
+    """Own the current SGF collection and expose game actions to any UI."""
+
+    stateChanged = QtCore.Signal()
+    errorOccurred = QtCore.Signal(str)
+    filePathChanged = QtCore.Signal(str)
+
+    def __init__(self, parent: QtCore.QObject | None = None) -> None:
+        super().__init__(parent)
+        self.collection = SgfCollection()
+        self.session = SgfGameSession.new_game()
+        self.collection.games.append(self.session.root)
+        self._current_path = ""
+        self._last_error = ""
+
+    @QtCore.Property("QVariantList", notify=stateChanged)
+    def boardRows(self) -> list[list[int]]:
+        return [list(row) for row in self.session.game.board]
+
+    @QtCore.Property(int, notify=stateChanged)
+    def boardSize(self) -> int:
+        return self.session.game.size
+
+    @QtCore.Property(int, notify=stateChanged)
+    def toPlay(self) -> int:
+        return self.session.game.to_play
+
+    @QtCore.Property(int, notify=stateChanged)
+    def blackCaptures(self) -> int:
+        return self.session.game.captures[BLACK]
+
+    @QtCore.Property(int, notify=stateChanged)
+    def whiteCaptures(self) -> int:
+        return self.session.game.captures[WHITE]
+
+    @QtCore.Property(int, notify=stateChanged)
+    def moveCount(self) -> int:
+        return max(0, len(self.session.path) - 1)
+
+    @QtCore.Property(bool, notify=stateChanged)
+    def canUndo(self) -> bool:
+        return self.session.can_undo
+
+    @QtCore.Property(bool, notify=stateChanged)
+    def canRedo(self) -> bool:
+        return self.session.can_advance
+
+    @QtCore.Property(bool, notify=stateChanged)
+    def gameFinished(self) -> bool:
+        return self.session.game.is_finished
+
+    @QtCore.Property(str, notify=filePathChanged)
+    def currentPath(self) -> str:
+        return self._current_path
+
+    @QtCore.Property(str, notify=stateChanged)
+    def currentPlayerName(self) -> str:
+        color = "PB" if self.session.game.to_play == BLACK else "PW"
+        values = self.session.root.values(color)
+        return values[0] if values else ("Black" if color == "PB" else "White")
+
+    @QtCore.Property(str, notify=stateChanged)
+    def otherPlayerName(self) -> str:
+        color = "PW" if self.session.game.to_play == BLACK else "PB"
+        values = self.session.root.values(color)
+        return values[0] if values else ("White" if color == "PW" else "Black")
+
+    @property
+    def game(self) -> GoGame:
+        return self.session.game
+
+    @property
+    def root(self) -> SgfNode:
+        return self.session.root
+
+    @property
+    def current_node(self) -> SgfNode:
+        return self.session.current_node
+
+    @property
+    def current_path(self) -> str:
+        return self._current_path
+
+    @property
+    def last_error(self) -> str:
+        return self._last_error
+
+    def new_game(self, board_size: int = 19) -> None:
+        self.session = SgfGameSession.new_game(board_size)
+        self.collection = SgfCollection([self.session.root])
+        self._current_path = ""
+        self.filePathChanged.emit("")
+        self._publish()
+
+    @QtCore.Slot(int, int, result=bool)
+    def play_at(self, x: int, y: int) -> bool:
+        try:
+            move = self.session.game.play(x, y)
+            self.session.append_move(move)
+        except (IllegalMove, SgfError) as error:
+            logger.debug("Rejected move at (%d, %d): %s", x, y, error)
+            self._emit_error(str(error))
+            return False
+        self._publish()
+        return True
+
+    @QtCore.Slot(result=bool)
+    def pass_turn(self) -> bool:
+        try:
+            move = self.session.game.pass_turn()
+            self.session.append_move(move)
+        except (IllegalMove, SgfError) as error:
+            self._emit_error(str(error))
+            return False
+        self._publish()
+        return True
+
+    @QtCore.Slot(result=bool)
+    def undo(self) -> bool:
+        return self._navigate(self.session.previous)
+
+    @QtCore.Slot(result=bool)
+    def redo(self) -> bool:
+        return self._navigate(self.session.next)
+
+    @QtCore.Slot(result=bool)
+    def previous(self) -> bool:
+        return self._navigate(self.session.previous)
+
+    @QtCore.Slot(int, result=bool)
+    def next(self, variation_index: int = 0) -> bool:
+        try:
+            self.session.next(variation_index)
+        except SgfError as error:
+            self._emit_error(str(error))
+            return False
+        self._publish()
+        return True
+
+    @QtCore.Slot(object, result=bool)
+    def navigate_to(self, node: SgfNode) -> bool:
+        try:
+            self.session.navigate_to(node)
+        except SgfError as error:
+            self._emit_error(str(error))
+            return False
+        self._publish()
+        return True
+
+    def load_sgf(self, path: str | Path) -> bool:
+        try:
+            collection = read_sgf(path)
+            session = SgfGameSession(collection.games[0], start_at_end=True)
+        except (OSError, SgfError, ValueError) as error:
+            self._emit_error(f"Could not open SGF: {error}")
+            logger.exception("Could not open SGF %s", path)
+            return False
+        self.collection = collection
+        self.session = session
+        self._current_path = str(path)
+        self.filePathChanged.emit(self._current_path)
+        self._publish()
+        logger.info("Opened SGF %s (%d game tree(s))", path, len(collection.games))
+        return True
+
+    def save_sgf(self, path: str | Path | None = None) -> bool:
+        destination = str(path) if path is not None else self._current_path
+        if not destination:
+            self._emit_error("Choose a path to save this game")
+            return False
+        try:
+            write_sgf(self.collection, destination)
+        except (OSError, SgfError) as error:
+            self._emit_error(f"Could not save SGF: {error}")
+            logger.exception("Could not save SGF %s", destination)
+            return False
+        self._current_path = destination
+        self.filePathChanged.emit(destination)
+        self._publish()
+        logger.info("Saved SGF %s", destination)
+        return True
+
+    @QtCore.Slot(str, str)
+    def set_root_property(self, identifier: str, value: str) -> None:
+        """Set a game-info property in the root SGF node."""
+        if not identifier or not identifier.isupper():
+            self._emit_error(f"Invalid SGF property identifier: {identifier}")
+            return
+        if value:
+            self.session.root.properties[identifier] = [value]
+        else:
+            self.session.root.properties.pop(identifier, None)
+        self._publish()
+
+    @QtCore.Slot(str)
+    def set_current_comment(self, comment: str) -> None:
+        """Edit the SGF comment on the current node."""
+        if comment:
+            self.session.current_node.properties["C"] = [comment]
+        else:
+            self.session.current_node.properties.pop("C", None)
+        self._publish()
+
+    def _navigate(self, callback) -> bool:
+        try:
+            callback()
+        except SgfError as error:
+            self._emit_error(str(error))
+            return False
+        self._publish()
+        return True
+
+    def _emit_error(self, message: str) -> None:
+        self._last_error = message
+        self.errorOccurred.emit(message)
+
+    def _publish(self) -> None:
+        self._last_error = ""
+        self.stateChanged.emit()

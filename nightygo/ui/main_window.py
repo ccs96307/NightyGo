@@ -102,7 +102,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self._settings.value("stone_material", "Traditional")
         )
 
-        self._analysis_status = QtWidgets.QLabel("Configure KataGo in Settings → Preferences")
+        self._analysis_status = QtWidgets.QLabel(self._t("Configure KataGo in AI Model Center"))
         self._analysis_summary = QtWidgets.QLabel("No analysis available")
         self._analysis_summary.setWordWrap(True)
         self._candidate_list = QtWidgets.QListWidget()
@@ -141,7 +141,7 @@ class MainWindow(QtWidgets.QMainWindow):
         stop_analysis_button.clicked.connect(self._stop_engine_analysis)
         configure_engine_button = QtWidgets.QPushButton("Configure KataGo…")
         configure_engine_button.setProperty("variant", "secondary")
-        configure_engine_button.clicked.connect(self._open_settings)
+        configure_engine_button.clicked.connect(self._open_model_center)
         play_candidate_button = QtWidgets.QPushButton("Play selected move")
         play_candidate_button.clicked.connect(self._play_selected_candidate)
         analysis_buttons = QtWidgets.QHBoxLayout()
@@ -718,7 +718,7 @@ class MainWindow(QtWidgets.QMainWindow):
         program = self._settings.value("engine_program", "")
         if not program:
             self._analysis_requested = False
-            self._analysis_status.setText(self._t("Choose the KataGo executable in Preferences"))
+            self._analysis_status.setText(self._t("Configure KataGo in AI Model Center"))
             return
         try:
             arguments = list(shlex.split(self._settings.value("engine_arguments", "gtp")))
@@ -865,7 +865,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if not self._settings.value("engine_program", ""):
             self._review_requested = False
             self._review_stop_button.setEnabled(False)
-            self._analysis_status.setText(self._t("Choose the KataGo executable in Preferences"))
+            self._analysis_status.setText(self._t("Configure KataGo in AI Model Center"))
             return
         if self._engine.status != GtpEngine.READY:
             self._review_requested = True
@@ -1055,20 +1055,6 @@ class MainWindow(QtWidgets.QMainWindow):
         stone_selector.setCurrentIndex(stone_selector.findData(
             self._settings.value("stone_material", "Traditional")
         ))
-        engine_program = QtWidgets.QLineEdit(
-            self._settings.value("engine_program", ""), dialog
-        )
-        engine_arguments = QtWidgets.QLineEdit(
-            self._settings.value("engine_arguments", "gtp"), dialog
-        )
-        engine_browse = QtWidgets.QPushButton(self._t("Browse…"), dialog)
-        engine_browse.clicked.connect(
-            lambda: self._select_engine_program(engine_program)
-        )
-        engine_row = QtWidgets.QHBoxLayout()
-        engine_row.addWidget(engine_program, 1)
-        engine_row.addWidget(engine_browse)
-
         form = QtWidgets.QFormLayout()
         form.addRow(self._t("Application font size"), font_size)
         form.addRow(self._t("Application theme"), theme_selector)
@@ -1076,8 +1062,6 @@ class MainWindow(QtWidgets.QMainWindow):
         form.addRow(self._t("Go stone placement sound"), sound_row)
         form.addRow(self._t("Board texture"), board_selector)
         form.addRow(self._t("Stone texture"), stone_selector)
-        form.addRow(self._t("KataGo executable"), engine_row)
-        form.addRow(self._t("Engine arguments"), engine_arguments)
         source_hint = QtWidgets.QLabel(self._t("Five real Go-stone recordings from two board types."))
         source_hint.setWordWrap(True)
         buttons = QtWidgets.QDialogButtonBox(
@@ -1102,16 +1086,12 @@ class MainWindow(QtWidgets.QMainWindow):
         selected_sound = sound_selector.currentData()
         selected_board = board_selector.currentData()
         selected_stones = stone_selector.currentData()
-        selected_engine = engine_program.text().strip()
-        selected_arguments = engine_arguments.text().strip()
         self._settings.setValue("font_size", size)
         self._settings.setValue("ui_theme", theme)
         self._settings.setValue("animations_enabled", enable_animations)
         self._settings.setValue("placement_sound", selected_sound)
         self._settings.setValue("board_material", selected_board)
         self._settings.setValue("stone_material", selected_stones)
-        self._settings.setValue("engine_program", selected_engine)
-        self._settings.setValue("engine_arguments", selected_arguments)
         self._stone_sound.set_sound(selected_sound)
         self._board.set_board_material(selected_board)
         self._board.set_animations_enabled(enable_animations)
@@ -1132,6 +1112,7 @@ class MainWindow(QtWidgets.QMainWindow):
         dialog = ModelCenterDialog(self._settings, self)
         dialog.modelSelected.connect(self._model_selected)
         dialog.exec()
+        self._analysis_status.setText(self._t("Configure KataGo in AI Model Center"))
 
     def _model_selected(self, path: str) -> None:
         if self._engine.is_running:

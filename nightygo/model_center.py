@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 import csv
+import hashlib
 import json
 import logging
 import os
@@ -11,6 +12,7 @@ import platform
 import re
 import shutil
 import subprocess
+import zipfile
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path
@@ -24,6 +26,8 @@ CATALOG_URL = "https://katagotraining.org/networks/"
 LICENSE_URL = "https://katagotraining.org/network_license/"
 MODEL_HOST = "media.katagotraining.org"
 MODEL_ROLE = QtCore.Qt.ItemDataRole.UserRole
+KATAGO_RELEASES_URL = "https://api.github.com/repos/lightvector/KataGo/releases?per_page=10"
+KATAGO_REPOSITORY = "https://github.com/lightvector/KataGo/"
 
 
 @dataclass(frozen=True)
@@ -266,9 +270,15 @@ class ModelCenterDialog(QtWidgets.QDialog):
         self._profile = HardwareProfile.detect()
         self._manager = QtNetwork.QNetworkAccessManager(self)
         self._catalog_reply: QtNetwork.QNetworkReply | None = None
+        self._engine_reply: QtNetwork.QNetworkReply | None = None
+        self._engine_archive_reply: QtNetwork.QNetworkReply | None = None
         self._probe_reply: QtNetwork.QNetworkReply | None = None
         self._download_reply: QtNetwork.QNetworkReply | None = None
         self._save_file: QtCore.QSaveFile | None = None
+        self._engine_save_file: QtCore.QSaveFile | None = None
+        self._engine_bytes_written = 0
+        self._engine_expected_digest = ""
+        self._engine_setup_pending = False
         self._expected_bytes = 0
         self._download_bytes_written = 0
         self._selected: ModelRecord | None = None
@@ -324,7 +334,23 @@ class ModelCenterDialog(QtWidgets.QDialog):
         self._progress = QtWidgets.QProgressBar(self)
         self._progress.setRange(0, 100)
         self._progress.setValue(0)
-        self._status = QtWidgets.QLabel(self._t("The model files are provided by katagotraining.org. This page does not download or install the KataGo executable."), self)
+        self._engine_label = QtWidgets.QLabel(self)
+        self._engine_label.setWordWrap(True)
+        self._engine_button = QtWidgets.QPushButton(self._t("Download engine and configure selected AI"), self)
+        self._engine_button.setProperty("variant", "primary")
+        self._engine_button.clicked.connect(self._configure_selected_ai)
+        self._engine_arguments = QtWidgets.QLineEdit(
+            str(settings.value("engine_arguments", "gtp")), self
+        )
+        self._engine_arguments.setPlaceholderText(self._t("Engine arguments (advanced)"))
+        self._engine_browse = QtWidgets.QPushButton(self._t("Use existing engine…"), self)
+        self._engine_browse.clicked.connect(self._select_existing_engine)
+        engine_row = QtWidgets.QHBoxLayout()
+        engine_row.addWidget(self._engine_label, 1)
+        engine_row.addWidget(self._engine_arguments)
+        engine_row.addWidget(self._engine_browse)
+        engine_row.addWidget(self._engine_button)
+        self._status = QtWidgets.QLabel(self._t("Choose a model, then configure the engine and model together here."), self)
         self._status.setObjectName("modelStatus")
         self._status.setWordWrap(True)
         self._download_button = QtWidgets.QPushButton(self._t("Download and set as current model"), self)
@@ -339,7 +365,7 @@ class ModelCenterDialog(QtWidgets.QDialog):
         actions.addWidget(self._download_button)
         actions.addWidget(self._download_only_button)
         actions.addWidget(self._cancel_button)
-        self._responsive_layouts = (hardware_row, folder_row, actions)
+        self._responsive_layouts = (hardware_row, folder_row, engine_row, actions)
 
         license_link = QtWidgets.QLabel(
             f'{self._t("Network models and licenses:")} <a href="{LICENSE_URL}">KataGo Neural Network License</a>'
@@ -364,6 +390,7 @@ class ModelCenterDialog(QtWidgets.QDialog):
         layout.addWidget(self._search)
         layout.addWidget(self._models, 1)
         layout.addWidget(self._details)
+        layout.addLayout(engine_row)
         layout.addLayout(folder_row)
         layout.addWidget(self._progress)
         layout.addWidget(self._status)
@@ -378,6 +405,7 @@ class ModelCenterDialog(QtWidgets.QDialog):
         root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.addWidget(scroll)
         self._refresh_hardware()
+        self._refresh_engine_status()
         self._load_cached_catalog()
         self._fetch_catalog()
 
@@ -553,6 +581,7 @@ class ModelCenterDialog(QtWidgets.QDialog):
         )
         self._download_button.setText(self._t("Downloaded · set as current model" if model_path.is_file() else "Download and set as current model"))
         self._download_only_button.setText(self._t("Download again" if model_path.is_file() else "Download only"))
+        self._engine_button.setEnabled(True)
 
     def _choose_download_folder(self) -> None:
         folder = QtWidgets.QFileDialog.getExistingDirectory(self, self._t("Choose folder…"), str(self._download_dir))
@@ -570,9 +599,239 @@ class ModelCenterDialog(QtWidgets.QDialog):
             return
         existing = self._download_dir / self._selected.filename
         if existing.is_file():
-            self._use_model(existing)
+            if Path(str(self._settings.value("engine_program", ""))).is_file():
+                self._use_model(existing)
+            else:
+                self._configure_selected_ai()
         else:
+            self._engine_setup_pending = not bool(self._settings.value("engine_program", ""))
+            if self._engine_setup_pending:
+                self._install_engine()
+            else:
+                self._begin_download(use_when_done=True)
+
+    def _configure_selected_ai(self) -> None:
+        """Install a compatible official engine and select the chosen network."""
+        if self._selected is None:
+            self._status.setText(self._t("Choose a model first."))
+            return
+        existing = Path(str(self._settings.value("engine_program", "")))
+        model_path = self._download_dir / self._selected.filename
+        self._engine_setup_pending = True
+        self._settings.setValue("engine_arguments", self._engine_arguments.text().strip() or "gtp")
+        if existing.is_file():
+            self._engine_button.setEnabled(False)
+            self._status.setText(self._t("Engine found; preparing the selected model…"))
+            if model_path.is_file():
+                self._finish_ai_setup(existing, model_path)
+            else:
+                self._begin_download(use_when_done=True)
+            return
+        self._install_engine()
+
+    def _select_existing_engine(self) -> None:
+        file_filter = "KataGo executable (katago katago.exe);;All files (*)"
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self, self._t("Select KataGo executable"), str(Path.home()), file_filter
+        )
+        if not path:
+            return
+        executable = Path(path)
+        if not executable.is_file():
+            self._status.setText(self._t("Engine setup failed: {error}", error="File does not exist"))
+            return
+        self._settings.setValue("engine_program", str(executable))
+        self._settings.setValue("engine_arguments", self._engine_arguments.text().strip() or "gtp")
+        self._settings.sync()
+        self._refresh_engine_status()
+        if self._selected is not None:
+            model_path = self._download_dir / self._selected.filename
+            if model_path.is_file():
+                self._finish_ai_setup(executable, model_path)
+            else:
+                self._engine_setup_pending = True
+                self._begin_download(use_when_done=True)
+
+    def _install_engine(self) -> None:
+        self._engine_button.setEnabled(False)
+        self._set_busy(True)
+        self._status.setText(self._t("Finding the latest compatible official KataGo engine…"))
+        request = QtNetwork.QNetworkRequest(QtCore.QUrl(KATAGO_RELEASES_URL))
+        request.setHeader(QtNetwork.QNetworkRequest.KnownHeaders.UserAgentHeader, "NightyGo AI Model Center")
+        request.setRawHeader(b"Accept", b"application/vnd.github+json")
+        request.setTransferTimeout(45_000)
+        request.setAttribute(QtNetwork.QNetworkRequest.Attribute.RedirectPolicyAttribute,
+                             QtNetwork.QNetworkRequest.RedirectPolicy.NoLessSafeRedirectPolicy)
+        self._engine_reply = self._manager.get(request)
+        self._engine_reply.finished.connect(self._engine_release_finished)
+
+    def _engine_release_finished(self) -> None:
+        reply = self._engine_reply
+        self._engine_reply = None
+        if reply is None:
+            return
+        try:
+            if reply.error() != QtNetwork.QNetworkReply.NetworkError.NoError:
+                raise ValueError(reply.errorString())
+            releases = json.loads(bytes(reply.readAll()).decode("utf-8"))
+            system = platform.system()
+            machine = platform.machine().casefold()
+            suffix = "linux-x64.zip" if system == "Linux" and machine in ("x86_64", "amd64") else "windows-x64.zip" if system == "Windows" and machine in ("x86_64", "amd64") else ""
+            if not suffix:
+                raise ValueError(self._t("Automatic engine setup is currently available for 64-bit Linux and Windows."))
+            asset = next((asset for release in releases if not release.get("draft") and not release.get("prerelease")
+                          for asset in release.get("assets", [])
+                          if asset.get("name", "").endswith(suffix)
+                          and "opencl" in asset.get("name", "").casefold()
+                          and "bs50" not in asset.get("name", "")), None)
+            if asset is None:
+                raise ValueError(self._t("No compatible official OpenCL engine was found."))
+            url = asset.get("browser_download_url", "")
+            if not url.startswith(KATAGO_REPOSITORY + "releases/download/"):
+                raise ValueError("Release asset URL was not from the official KataGo repository")
+            archive_name = Path(asset["name"]).name
+            app_data_dir = Path(QtCore.QStandardPaths.writableLocation(
+                QtCore.QStandardPaths.StandardLocation.AppDataLocation
+            ))
+            self._engine_archive_path = app_data_dir / "engines" / archive_name
+            self._engine_archive_path.parent.mkdir(parents=True, exist_ok=True)
+            self._engine_expected_bytes = int(asset.get("size", 0))
+            self._engine_expected_digest = str(asset.get("digest", ""))
+            storage = QtCore.QStorageInfo(str(self._engine_archive_path.parent))
+            storage.refresh()
+            if self._engine_expected_bytes and storage.bytesAvailable() < self._engine_expected_bytes * 1.05:
+                raise ValueError(self._t("Not enough disk space; choose another location."))
+            self._engine_save_file = QtCore.QSaveFile(str(self._engine_archive_path))
+            if not self._engine_save_file.open(QtCore.QIODevice.OpenModeFlag.WriteOnly):
+                raise ValueError(self._engine_save_file.errorString())
+            self._engine_bytes_written = 0
+            request = QtNetwork.QNetworkRequest(QtCore.QUrl(url))
+            request.setHeader(QtNetwork.QNetworkRequest.KnownHeaders.UserAgentHeader, "NightyGo AI Model Center")
+            request.setTransferTimeout(120_000)
+            request.setAttribute(QtNetwork.QNetworkRequest.Attribute.RedirectPolicyAttribute,
+                                 QtNetwork.QNetworkRequest.RedirectPolicy.NoLessSafeRedirectPolicy)
+            self._engine_archive_reply = self._manager.get(request)
+            self._engine_archive_reply.readyRead.connect(self._write_engine_chunk)
+            self._engine_archive_reply.downloadProgress.connect(self._engine_download_progress)
+            self._engine_archive_reply.finished.connect(self._engine_archive_finished)
+            self._status.setText(self._t("Downloading the official KataGo engine…"))
+        except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as error:
+            logger.warning("Could not prepare KataGo engine: %s", error)
+            if self._engine_save_file is not None:
+                self._engine_save_file.cancelWriting()
+                self._engine_save_file = None
+            self._status.setText(self._t("Engine setup failed: {error}", error=error))
+            self._engine_button.setEnabled(True)
+            self._set_busy(False)
+        finally:
+            reply.deleteLater()
+
+    def _write_engine_chunk(self) -> None:
+        if self._engine_archive_reply is None or self._engine_save_file is None:
+            return
+        chunk = bytes(self._engine_archive_reply.readAll())
+        if chunk:
+            written = self._engine_save_file.write(chunk)
+            if written != len(chunk):
+                self._engine_archive_reply.abort()
+            else:
+                self._engine_bytes_written += written
+
+    def _engine_download_progress(self, received: int, total: int) -> None:
+        if total:
+            self._progress.setValue(min(100, int(received * 100 / total)))
+            self._status.setText(self._t("Downloading the official KataGo engine… {percent}%", percent=int(received * 100 / total)))
+
+    def _engine_archive_finished(self) -> None:
+        reply = self._engine_archive_reply
+        if reply is None:
+            return
+        self._write_engine_chunk()
+        self._engine_archive_reply = None
+        error = reply.error()
+        error_text = reply.errorString()
+        reply.deleteLater()
+        archive_path = self._engine_archive_path
+        if error != QtNetwork.QNetworkReply.NetworkError.NoError or (
+            self._engine_expected_bytes and self._engine_bytes_written != self._engine_expected_bytes
+        ) or not self._engine_save_file or not self._engine_save_file.commit():
+            if error == QtNetwork.QNetworkReply.NetworkError.NoError and self._engine_expected_bytes and self._engine_bytes_written != self._engine_expected_bytes:
+                error_text = f"download size mismatch ({self._engine_bytes_written}/{self._engine_expected_bytes} bytes)"
+            if self._engine_save_file:
+                self._engine_save_file.cancelWriting()
+            self._engine_save_file = None
+            self._engine_setup_failed(error_text)
+            return
+        self._engine_save_file = None
+        try:
+            if self._engine_expected_digest.startswith("sha256:"):
+                digest = hashlib.sha256(archive_path.read_bytes()).hexdigest()
+                if digest.casefold() != self._engine_expected_digest.removeprefix("sha256:").casefold():
+                    raise ValueError("Official asset SHA-256 digest did not match GitHub release metadata")
+            binary_name = "katago.exe" if platform.system() == "Windows" else "katago"
+            engine_dir = archive_path.parent
+            with zipfile.ZipFile(archive_path) as archive:
+                member = next((info for info in archive.infolist()
+                               if Path(info.filename).name.casefold() == binary_name.casefold()
+                               and not info.is_dir()), None)
+                if member is None:
+                    raise ValueError(f"Official archive does not contain {binary_name}")
+                target = engine_dir / binary_name
+                temporary = target.with_suffix(target.suffix + ".installing")
+                with archive.open(member) as source, temporary.open("wb") as destination:
+                    shutil.copyfileobj(source, destination)
+                if platform.system() != "Windows":
+                    temporary.chmod(0o755)
+                os.replace(temporary, target)
+            archive_path.unlink(missing_ok=True)
+            self._finish_engine_install(target)
+        except (OSError, zipfile.BadZipFile, ValueError) as error:
+            logger.exception("Could not install KataGo engine archive")
+            archive_path.unlink(missing_ok=True)
+            self._engine_setup_failed(str(error))
+
+    def _finish_engine_install(self, path: Path) -> None:
+        self._settings.setValue("engine_program", str(path))
+        args = self._engine_arguments.text().strip() or "gtp"
+        self._settings.setValue("engine_arguments", args)
+        self._settings.sync()
+        self._refresh_engine_status()
+        if self._selected is None:
+            self._set_busy(False)
+            return
+        model_path = self._download_dir / self._selected.filename
+        if model_path.is_file():
+            self._finish_ai_setup(path, model_path)
+        else:
+            self._status.setText(self._t("Engine installed; downloading the selected model…"))
             self._begin_download(use_when_done=True)
+
+    def _finish_ai_setup(self, engine_path: Path, model_path: Path) -> None:
+        self._settings.setValue("engine_program", str(engine_path))
+        self._settings.setValue("engine_model", str(model_path))
+        self._settings.setValue("engine_arguments", self._engine_arguments.text().strip() or "gtp")
+        self._settings.sync()
+        self._engine_setup_pending = False
+        self._set_busy(False)
+        self._refresh_engine_status()
+        self._populate_catalog()
+        self._status.setText(self._t("AI setup complete. Engine and model are ready; start analysis."))
+        self.modelSelected.emit(str(model_path))
+
+    def _engine_setup_failed(self, message: str) -> None:
+        self._engine_setup_pending = False
+        self._engine_button.setEnabled(True)
+        self._set_busy(False)
+        self._status.setText(self._t("Engine setup failed: {error}", error=message))
+
+    def _refresh_engine_status(self) -> None:
+        program = Path(str(self._settings.value("engine_program", "")))
+        if program.is_file():
+            self._engine_label.setText(self._t("Engine ready: {path}", path=program))
+            self._engine_button.setText(self._t("Reinstall engine and configure selected AI"))
+        else:
+            self._engine_label.setText(self._t("KataGo engine is not installed or configured."))
+            self._engine_button.setText(self._t("Download engine and configure selected AI"))
 
     def _begin_download(self, use_when_done: bool) -> None:
         if self._selected is None:
@@ -702,6 +961,11 @@ class ModelCenterDialog(QtWidgets.QDialog):
             self._selection_changed(self._models.currentItem(), None)
 
     def _cancel_download(self) -> None:
+        if self._engine_reply is not None:
+            self._engine_reply.abort()
+        if self._engine_archive_reply is not None:
+            self._status.setText(self._t("Cancelling and removing the incomplete model file…"))
+            self._engine_archive_reply.abort()
         if self._probe_reply is not None:
             self._probe_reply.abort()
         if self._download_reply is not None:
@@ -714,25 +978,37 @@ class ModelCenterDialog(QtWidgets.QDialog):
         self._download_button.setEnabled(not busy)
         self._download_only_button.setEnabled(not busy)
         self._cancel_button.setEnabled(busy)
+        self._engine_button.setEnabled(not busy)
 
     def _use_model(self, path: Path) -> None:
+        if self._engine_setup_pending:
+            executable = Path(str(self._settings.value("engine_program", "")))
+            if executable.is_file():
+                self._finish_ai_setup(executable, path)
+                return
         self._settings.setValue("engine_model", str(path))
         self._settings.sync()
         self._populate_catalog()
         if self._models.currentItem():
             self._selection_changed(self._models.currentItem(), None)
-        self._status.setText(self._t("Model selected. Set the KataGo executable in Preferences, then start analysis."))
+        self._status.setText(self._t("Model selected; start analysis to load it into KataGo."))
         self.modelSelected.emit(str(path))
 
     def closeEvent(self, event) -> None:
         if self._catalog_reply is not None:
             self._catalog_reply.abort()
+        if self._engine_reply is not None:
+            self._engine_reply.abort()
+        if self._engine_archive_reply is not None:
+            self._engine_archive_reply.abort()
         if self._probe_reply is not None:
             self._probe_reply.abort()
         if self._download_reply is not None:
             self._download_reply.abort()
         if self._save_file is not None:
             self._save_file.cancelWriting()
+        if self._engine_save_file is not None:
+            self._engine_save_file.cancelWriting()
         super().closeEvent(event)
 
 

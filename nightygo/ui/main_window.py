@@ -18,6 +18,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self._settings = QtCore.QSettings("NightyGo", "NightyGo")
+        self._set_font_size(int(self._settings.value("font_size", 14)))
         self._collection = SgfCollection()
         self._session = SgfGameSession.new_game()
         self._collection.games.append(self._session.root)
@@ -59,6 +60,9 @@ class MainWindow(QtWidgets.QMainWindow):
         undo_action.triggered.connect(self._undo)
         self.addAction(undo_action)
         self._create_file_menu()
+        settings_menu = self.menuBar().addMenu("Settings")
+        font_action = settings_menu.addAction("Font Size…")
+        font_action.triggered.connect(self._choose_font_size)
 
         controls = QtWidgets.QHBoxLayout()
         controls.addWidget(self._previous_button)
@@ -217,6 +221,39 @@ class MainWindow(QtWidgets.QMainWindow):
     def _select_sound(self, name: str) -> None:
         self._stone_sound.set_sound(name)
         self._settings.setValue("placement_sound", name)
+
+    def _choose_font_size(self) -> None:
+        dialog = QtWidgets.QDialog(self)
+        dialog.setWindowTitle("Font Size")
+        size_selector = QtWidgets.QSpinBox(dialog)
+        size_selector.setRange(10, 30)
+        size_selector.setSuffix(" pt")
+        size_selector.setValue(int(self._settings.value("font_size", 14)))
+        form = QtWidgets.QFormLayout()
+        form.addRow("Application font size", size_selector)
+        buttons = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.StandardButton.Ok
+            | QtWidgets.QDialogButtonBox.StandardButton.Cancel,
+            parent=dialog,
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout = QtWidgets.QVBoxLayout(dialog)
+        layout.addLayout(form)
+        layout.addWidget(buttons)
+        if dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
+            size = size_selector.value()
+            self._settings.setValue("font_size", size)
+            self._set_font_size(size)
+
+    @staticmethod
+    def _set_font_size(size: int) -> None:
+        app = QtWidgets.QApplication.instance()
+        if app is None:
+            return
+        font = app.font()
+        font.setPointSize(size)
+        app.setFont(font)
 
     def _refresh_navigation(self, *_args) -> None:
         self._next_button.setEnabled(self._session.can_advance)

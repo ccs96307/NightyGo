@@ -22,3 +22,5 @@ uv run python -m nightygo
 - Import and export SGF collections while preserving annotations and alternate lines.
 
 Use **File → Open SGF** to load a record and **File → Save SGF** to save it.
+Choose **Settings → Font Size** to adjust the application text size; the default
+is 14 pt and the selected size is remembered.

@@ -21,3 +21,4 @@ uv run python -m nightygo
 - 匯入與匯出 SGF 棋譜集，保留註解與其他變化線。
 
 使用「File → Open SGF」開啟棋譜，使用「File → Save SGF」儲存。
+可在「Settings → Font Size」調整介面字級；預設為 14 pt，選擇會自動記住。

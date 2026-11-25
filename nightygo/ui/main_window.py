@@ -40,6 +40,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._undo_button = QtWidgets.QPushButton("Undo")
         self._undo_button.clicked.connect(self._undo)
+        self._redo_button = QtWidgets.QPushButton("Redo")
+        self._redo_button.clicked.connect(self._redo)
         self._previous_button = QtWidgets.QPushButton("Previous")
         self._previous_button.clicked.connect(self._previous)
         self._next_button = QtWidgets.QPushButton("Next")
@@ -73,6 +75,10 @@ class MainWindow(QtWidgets.QMainWindow):
         undo_action.setShortcut(QtGui.QKeySequence.StandardKey.Undo)
         undo_action.triggered.connect(self._undo)
         self.addAction(undo_action)
+        redo_action = QtGui.QAction("Redo", self)
+        redo_action.setShortcut(QtGui.QKeySequence.StandardKey.Redo)
+        redo_action.triggered.connect(self._redo)
+        self.addAction(redo_action)
         self._create_file_menu()
         settings_menu = self.menuBar().addMenu("Settings")
         preferences_action = settings_menu.addAction("Preferences…")
@@ -85,6 +91,7 @@ class MainWindow(QtWidgets.QMainWindow):
         controls.addStretch(1)
         controls.addWidget(self._capture_label)
         controls.addWidget(self._undo_button)
+        controls.addWidget(self._redo_button)
         controls.addWidget(pass_button)
         controls_widget = QtWidgets.QWidget(self)
         controls_widget.setLayout(controls)
@@ -150,6 +157,11 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         self._previous()
 
+    def _redo(self) -> None:
+        if not self._session.can_advance:
+            return
+        self._next()
+
     def _pass_turn(self) -> None:
         try:
             move = self.game.pass_turn()
@@ -177,7 +189,23 @@ class MainWindow(QtWidgets.QMainWindow):
         self._refresh()
 
     def _new_game(self) -> None:
-        self._session = SgfGameSession.new_game()
+        sizes = ("9", "13", "19")
+        preferred_size = str(self._settings.value("board_size", 19))
+        if preferred_size not in sizes:
+            preferred_size = "19"
+        selected, accepted = QtWidgets.QInputDialog.getItem(
+            self,
+            "New Game",
+            "Board size",
+            sizes,
+            sizes.index(preferred_size),
+            False,
+        )
+        if not accepted:
+            return
+        board_size = int(selected)
+        self._settings.setValue("board_size", board_size)
+        self._session = SgfGameSession.new_game(board_size)
         self._collection = SgfCollection([self._session.root])
         self._current_path = None
         self.game = self._session.game
@@ -351,6 +379,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._board.set_game(self.game)
         self._refresh_tree()
         self._undo_button.setEnabled(self._session.can_undo)
+        self._redo_button.setEnabled(self._session.can_advance)
         self._previous_button.setEnabled(self._session.can_undo)
         self._variations.blockSignals(True)
         self._variations.clear()

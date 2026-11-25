@@ -53,6 +53,10 @@ NightyGo 是桌面圍棋對局、棋譜編輯與 AI 覆盤工作室。棋盤是�
 
 ## 狀態
 
-- 已完成：現況盤點、產品定位與介面基準文件；棋盤 9/13/19 尺寸選擇；棋局 redo；GameController 將棋局/SGF 狀態與 UI 分離；依 SGF CA 讀取、UTF-8 正規化寫入；棋局資訊、註解、棋譜分支與棋盤標記編輯；GTP 非同步服務、KataGo 分析解析、引擎設定與候選著面板。
-- 驗證：棋規、SGF legacy encoding round-trip、GameController、假 GTP 引擎握手／genmove／kata-analyze 候選著測試通過；Widgets 主視窗和 markup 離屏繪製通過。
-- 進行中：QML 工作區原型、AI 勝率/目差/ownership 視覺化、棋譜庫與復原流程。
+- 完成：18 個藍圖交付項目皆已實作到可驗收狀態。中央工作區提供原有穩定棋盤與可切換的 Qt Quick/QML 棋盤原型；QML 資源已納入 wheel。
+- Play／SGF：棋規和 9/13/19 棋盤、undo/redo、分支及主線編輯、棋局資訊、註解、棋盤標記、SGF 字元集相容與 UTF-8 正規化、原子保存、重複保存均已覆蓋。
+- Analyze／Review：非同步 GTP/KataGo 連線、候選著、勝率／目差、ownership 棋盤疊圖；整盤沿主線分析、勝率圖、重大波動清單和跳轉棋步均可使用。引擎需由使用者在設定中指定本機 KataGo 執行檔與模型參數。
+- Library／Recovery：近期 SGF、棋手／賽事／結果／標籤搜尋、標籤管理、未保存提示與自動復原快照已完成。
+- 視覺與可用性：深色和暖白主題、可調字級、加大控制項、鍵盤焦點樣式、棋盤動畫開關；現有木紋／星空材質和球面棋子繪製保留。
+- 驗證：33 項 unittest 全通過；QML offscreen 載入與 Widgets 主窗離屏啟動通過；QML wheel 資源檢查通過；假 GTP 整盤覆盤 3 個局面並檢出重大勝率波動；SGF 重複保存端到端檢查通過；`uv build` 成功。
+- 限制：環境未配置真實 KataGo 執行檔和模型，AI 驗收以協定相容的假 GTP 程序加 parser tests 執行；Qt Quick 效能目前完成渲染啟動檢查，尚無跨 GPU 的正式基準測試。大型模型不下載或打包。

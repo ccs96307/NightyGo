@@ -1,19 +1,18 @@
 # -*- coding: utf-8 -*-
-from PyQt5 import QtCore, QtGui, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 from gameManager import *
 
 
 class chess(QtWidgets.QLabel):
     def __init__(self, centralwidget, goBoard, turns):
-        super(chess, self).__init__(centralwidget)
-        super().__init__(a, b)
+        super().__init__(centralwidget)
         self.centralwidget = centralwidget
         self.goBoard = goBoard
 
     def mousePressEvent(self, event):
         turns = get_turns()
 
-        if event.buttons() == QtCore.Qt.LeftButton:
+        if event.button() == QtCore.Qt.MouseButton.LeftButton:
             blackStone = QtGui.QPixmap()
             blackStone.load('Image/black_stone.svg')
             whiteStone = QtGui.QPixmap()

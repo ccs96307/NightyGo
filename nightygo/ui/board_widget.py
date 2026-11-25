@@ -24,7 +24,9 @@ class BoardWidget(QtWidgets.QWidget):
         self._analysis_points: tuple[tuple[int, int, int], ...] = ()
         self._ownership: tuple[float, ...] = ()
         self._ownership_size = 0
-        self._markup_properties: dict[str, list[str]] = {}
+        self._markup_properties: dict[str, list[str]] = {
+            key: [] for key in ("TR", "SQ", "CR", "MA", "LB", "AR", "LN")
+        }
         self._markup_mode = ""
         self._board_material = "wood"
         self._stone_material = "classic"
@@ -36,6 +38,11 @@ class BoardWidget(QtWidgets.QWidget):
         self._preview_opacity = 0.0
         self._preview_target_opacity = 0.0
         self._ui_theme = "Dark"
+        self._material_strength = 100
+        self._fps_frames = 0
+        self._fps_started = time.monotonic()
+        self._render_fps = 0
+        self._show_performance = False
         self._theme_animation_timer = QtCore.QTimer(self)
         self._theme_animation_timer.setInterval(33)
         self._theme_animation_timer.timeout.connect(self._advance_theme_animation)
@@ -57,6 +64,18 @@ class BoardWidget(QtWidgets.QWidget):
             self._board_material = BOARD_MATERIALS[material]
             self._sync_theme_animation()
             self.update()
+
+    def set_material_strength(self, strength: int) -> None:
+        self._material_strength = min(100, max(0, int(strength)))
+        self.update()
+
+    def set_performance_overlay(self, enabled: bool) -> None:
+        self._show_performance = bool(enabled)
+        self.update()
+
+    @property
+    def render_fps(self) -> int:
+        return self._render_fps
 
     def set_animations_enabled(self, enabled: bool) -> None:
         """Enable or stop ambient board animation."""
@@ -302,7 +321,12 @@ class BoardWidget(QtWidgets.QWidget):
         clip.addRoundedRect(surface, 12, 12)
         painter.save()
         painter.setClipPath(clip)
+        if self._material_strength < 100:
+            base = QtGui.QColor("#ddb46e" if self._board_material == "wood" else "#101827")
+            painter.fillRect(surface, base)
+        painter.setOpacity(self._material_strength / 100.0)
         painter.drawImage(surface, board_texture(self._board_material))
+        painter.setOpacity(1.0)
         if self._ownership_size == self._game.size and len(self._ownership) == self._game.size ** 2:
             for index, ownership in enumerate(self._ownership):
                 x, y = index % self._game.size, index // self._game.size
@@ -379,7 +403,14 @@ class BoardWidget(QtWidgets.QWidget):
                     diameter * 0.45,
                 )
                 pixmap = stone_pixmap(stone_color, self._stone_material)
-                painter.drawPixmap(target, pixmap, QtCore.QRectF(pixmap.rect()))
+                if self._material_strength < 100 and self._stone_material != "classic":
+                    base = stone_pixmap(stone_color, "classic")
+                    painter.drawPixmap(target, base, QtCore.QRectF(base.rect()))
+                    painter.setOpacity(self._material_strength / 100.0)
+                    painter.drawPixmap(target, pixmap, QtCore.QRectF(pixmap.rect()))
+                    painter.setOpacity(1.0)
+                else:
+                    painter.drawPixmap(target, pixmap, QtCore.QRectF(pixmap.rect()))
                 self._draw_sphere_lighting(painter, target)
                 painter.restore()
 
@@ -407,6 +438,19 @@ class BoardWidget(QtWidgets.QWidget):
         painter.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255, 36 if dark else 120), 1))
         painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
         painter.drawRoundedRect(surface, 12, 12)
+        now = time.monotonic()
+        self._fps_frames += 1
+        elapsed = now - self._fps_started
+        if elapsed >= 1.0:
+            self._render_fps = round(self._fps_frames / elapsed)
+            self._fps_frames = 0
+            self._fps_started = now
+        if self._show_performance:
+            painter.setPen(QtGui.QColor("#d8e4f4"))
+            painter.setBrush(QtGui.QColor(8, 14, 24, 190))
+            badge = QtCore.QRectF(surface.left() + 8, surface.top() + 8, 82, 25)
+            painter.drawRoundedRect(badge, 8, 8)
+            painter.drawText(badge, QtCore.Qt.AlignmentFlag.AlignCenter, f"{self._render_fps} FPS")
         painter.end()
 
     def _draw_markup(

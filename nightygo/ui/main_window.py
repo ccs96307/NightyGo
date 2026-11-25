@@ -68,6 +68,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._board.set_ui_theme(self._ui_theme)
         self._board.set_board_material(self._settings.value("board_material", "Classic wood"))
         self._board.set_stone_material(self._settings.value("stone_material", "Traditional"))
+        self._board.set_material_strength(int(self._settings.value("material_strength", 100)))
+        self._board.set_performance_overlay(self._settings.value("show_performance", False, type=bool))
         self._board.set_motion_level(self._motion_level)
         self._board.set_game(self.game)
         self._board.point_clicked.connect(self._play_at)
@@ -134,6 +136,7 @@ class MainWindow(QtWidgets.QMainWindow):
         ))
         self._latest_ownership: tuple[float, ...] = ()
         self._analysis_graph = AnalysisGraph(self)
+        self._analysis_graph.move_selected.connect(self._jump_to_review_move)
         review_button = QtWidgets.QPushButton("Review full game")
         review_button.clicked.connect(self._start_game_review)
         self._review_stop_button = QtWidgets.QPushButton("Stop review")
@@ -298,6 +301,9 @@ class MainWindow(QtWidgets.QMainWindow):
             "stoneMaterialName", self._settings.value("stone_material", "Traditional")
         )
         self._qml_workspace.rootContext().setContextProperty("motionLevel", self._motion_level)
+        self._qml_workspace.rootContext().setContextProperty(
+            "materialStrength", int(self._settings.value("material_strength", 100)) / 100.0
+        )
         self._qml_workspace.setResizeMode(QQuickWidget.ResizeMode.SizeRootObjectToView)
         self._qml_workspace.setSource(QtCore.QUrl.fromLocalFile(
             str(Path(__file__).resolve().parents[1] / "qml" / "BoardWorkspace.qml")
@@ -327,6 +333,10 @@ class MainWindow(QtWidgets.QMainWindow):
         view_menu.addAction(self._comments_dock.toggleViewAction())
         view_menu.addAction(self._library_dock.toggleViewAction())
         view_menu.addAction(self._controls_dock.toggleViewAction())
+        view_menu.addSeparator()
+        for label, preset in (("Play layout", "play"), ("Review layout", "review"), ("Study layout", "study")):
+            action = view_menu.addAction(label)
+            action.triggered.connect(lambda _checked=False, name=preset: self._apply_layout_preset(name))
         settings_menu = self.menuBar().addMenu("Settings")
         preferences_action = settings_menu.addAction("Preferences…")
         preferences_action.triggered.connect(self._open_settings)
@@ -861,6 +871,7 @@ class MainWindow(QtWidgets.QMainWindow):
             else:
                 self._review_results[-1] = (move_number, black_winrate)
             self._analysis_graph.set_points(self._review_results)
+            self._analysis_graph.set_current_move(move_number)
 
     def _set_root_summary(self, black_winrate: float, score_lead: float | None, visits: int) -> None:
         score = "—" if score_lead is None else f"{score_lead:+.1f} {self._t('pts')}"
@@ -913,6 +924,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._reviewing = True
         self._review_findings.clear()
         self._analysis_graph.set_points([])
+        self._analysis_graph.set_current_move(None)
         self._review_stop_button.setEnabled(True)
         self._analysis_status.setText(self._t("Reviewing {count} positions…", count=len(positions)))
         self._review_next_position()
@@ -993,10 +1005,20 @@ class MainWindow(QtWidgets.QMainWindow):
             self._review_findings.addItem(item)
         self._analysis_status.setText(self._t("Review complete · {positions} positions · {swings} major swings", positions=len(self._review_results), swings=len(drops)))
 
-    def _jump_to_review_move(self, item: QtWidgets.QListWidgetItem) -> None:
-        move_number = item.data(QtCore.Qt.ItemDataRole.UserRole)
+    def _jump_to_review_move(self, item: QtWidgets.QListWidgetItem | int) -> None:
+        move_number = item if isinstance(item, int) else item.data(QtCore.Qt.ItemDataRole.UserRole)
         if isinstance(move_number, int):
-            self._controller.navigate_to(self._review_positions[move_number][3])
+            if 0 <= move_number < len(self._review_positions):
+                self._controller.navigate_to(self._review_positions[move_number][3])
+
+    def _apply_layout_preset(self, preset: str) -> None:
+        """Show panels suited to playing, reviewing, or studying."""
+        self._tree_dock.show()
+        self._comments_dock.setVisible(preset != "play")
+        self._analysis_dock.setVisible(preset == "review")
+        self._library_dock.setVisible(preset == "study")
+        self._controls_dock.show()
+        self.statusBar().showMessage(self._t("{name} layout", name=preset.title()), 2500)
 
     def _play_selected_candidate(self, *_args) -> None:
         item = self._candidate_list.currentItem()
@@ -1034,6 +1056,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self._stone_sound.selected_sound,
             str(self._settings.value("board_material", "Classic wood")),
             str(self._settings.value("stone_material", "Traditional")),
+            int(self._settings.value("material_strength", 100)),
+            self._settings.value("show_performance", False, type=bool),
         )
         dialog = QtWidgets.QDialog(self)
         dialog.setWindowTitle(self._t("NightyGo Preferences"))
@@ -1046,7 +1070,7 @@ class MainWindow(QtWidgets.QMainWindow):
             motion_selector.addItem(self._t(label), level)
         motion_selector.setCurrentIndex(motion_selector.findData(self._motion_level))
         theme_selector = QtWidgets.QComboBox(dialog)
-        for theme in ("Dark", "Warm light"):
+        for theme in ("Dark", "Warm light", "High contrast"):
             theme_selector.addItem(self._t(theme), theme)
         theme_selector.setCurrentIndex(theme_selector.findData(self._ui_theme))
 
@@ -1078,6 +1102,25 @@ class MainWindow(QtWidgets.QMainWindow):
         stone_selector.setCurrentIndex(stone_selector.findData(
             self._settings.value("stone_material", "Traditional")
         ))
+        preset_selector = QtWidgets.QComboBox(dialog)
+        for label in ("Custom", "Quiet wood", "Aurora night", "Moonlit study"):
+            preset_selector.addItem(self._t(label), label)
+        current_board = str(self._settings.value("board_material", "Classic wood"))
+        current_stone = str(self._settings.value("stone_material", "Traditional"))
+        if current_board == "Classic wood" and current_stone == "Traditional" and self._ui_theme == "Warm light":
+            active_preset = "Quiet wood"
+        elif current_board == "Starfield" and current_stone == "Starfield":
+            active_preset = "Aurora night"
+        elif current_board == "Night sky" and current_stone == "Moonstone":
+            active_preset = "Moonlit study"
+        else:
+            active_preset = "Custom"
+        preset_selector.setCurrentIndex(preset_selector.findData(active_preset))
+        material_strength = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal, dialog)
+        material_strength.setRange(25, 100)
+        material_strength.setValue(original[6])
+        performance_overlay = QtWidgets.QCheckBox(self._t("Show board FPS"), dialog)
+        performance_overlay.setChecked(original[7])
         form = QtWidgets.QFormLayout()
         form.addRow(self._t("Application font size"), font_size)
         form.addRow(self._t("Application theme"), theme_selector)
@@ -1085,6 +1128,9 @@ class MainWindow(QtWidgets.QMainWindow):
         form.addRow(self._t("Go stone placement sound"), sound_row)
         form.addRow(self._t("Board texture"), board_selector)
         form.addRow(self._t("Stone texture"), stone_selector)
+        form.addRow(self._t("Visual preset"), preset_selector)
+        form.addRow(self._t("Material strength"), material_strength)
+        form.addRow(self._t("Performance"), performance_overlay)
         preview_hint = QtWidgets.QLabel(
             self._t("Changes preview immediately. OK saves them; Cancel restores the previous settings."),
             dialog,
@@ -1108,6 +1154,20 @@ class MainWindow(QtWidgets.QMainWindow):
         layout.addWidget(buttons)
 
         def apply_selection(*_args) -> None:
+            preset = preset_selector.currentData()
+            if preset == "Quiet wood":
+                theme, board_name, stone_name = "Warm light", "Classic wood", "Traditional"
+            elif preset == "Aurora night":
+                theme, board_name, stone_name = "Dark", "Starfield", "Starfield"
+            elif preset == "Moonlit study":
+                theme, board_name, stone_name = "Dark", "Night sky", "Moonstone"
+            else:
+                theme = board_name = stone_name = None
+            if preset != "Custom" and getattr(apply_selection, "preset_applied", None) != preset:
+                apply_selection.preset_applied = preset
+                theme_selector.setCurrentIndex(theme_selector.findData(theme))
+                board_selector.setCurrentIndex(board_selector.findData(board_name))
+                stone_selector.setCurrentIndex(stone_selector.findData(stone_name))
             self._apply_preferences_preview(
                 font_size.value(),
                 theme_selector.currentData() or original[1],
@@ -1115,6 +1175,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 sound_selector.currentData() or original[3],
                 board_selector.currentData() or original[4],
                 stone_selector.currentData() or original[5],
+                material_strength.value(),
+                performance_overlay.isChecked(),
             )
 
         for control, signal in (
@@ -1124,6 +1186,9 @@ class MainWindow(QtWidgets.QMainWindow):
             (sound_selector, sound_selector.currentIndexChanged),
             (board_selector, board_selector.currentIndexChanged),
             (stone_selector, stone_selector.currentIndexChanged),
+            (preset_selector, preset_selector.currentIndexChanged),
+            (material_strength, material_strength.valueChanged),
+            (performance_overlay, performance_overlay.toggled),
         ):
             signal.connect(apply_selection)
         apply_selection()
@@ -1138,6 +1203,8 @@ class MainWindow(QtWidgets.QMainWindow):
         selected_sound = sound_selector.currentData()
         selected_board = board_selector.currentData()
         selected_stones = stone_selector.currentData()
+        selected_strength = material_strength.value()
+        show_performance = performance_overlay.isChecked()
         self._settings.setValue("font_size", size)
         self._settings.setValue("ui_theme", theme)
         self._settings.setValue("motion_level", selected_motion)
@@ -1145,8 +1212,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self._settings.setValue("placement_sound", selected_sound)
         self._settings.setValue("board_material", selected_board)
         self._settings.setValue("stone_material", selected_stones)
+        self._settings.setValue("material_strength", selected_strength)
+        self._settings.setValue("show_performance", show_performance)
         self._apply_preferences_preview(
-            size, theme, selected_motion, selected_sound, selected_board, selected_stones
+            size, theme, selected_motion, selected_sound, selected_board, selected_stones,
+            selected_strength, show_performance
         )
         logger.info(
             "Preferences updated: font=%d pt, board=%s, stones=%s, motion=%s, sound=%s",
@@ -1165,6 +1235,8 @@ class MainWindow(QtWidgets.QMainWindow):
         sound: str,
         board_material: str,
         stone_material: str,
+        material_strength: int = 100,
+        show_performance: bool = False,
     ) -> None:
         """Apply a live Preferences preview without persisting it."""
         self._set_font_size(size)
@@ -1174,12 +1246,17 @@ class MainWindow(QtWidgets.QMainWindow):
         self._board.set_motion_level(motion)
         self._board.set_board_material(board_material)
         self._board.set_stone_material(stone_material)
+        self._board.set_material_strength(material_strength)
+        self._board.set_performance_overlay(show_performance)
         self._game_tree.set_motion_level(motion)
         self._game_tree.set_stone_material(stone_material)
         self._qml_workspace.rootContext().setContextProperty("uiTheme", theme)
         self._qml_workspace.rootContext().setContextProperty("boardMaterialName", board_material)
         self._qml_workspace.rootContext().setContextProperty("stoneMaterialName", stone_material)
         self._qml_workspace.rootContext().setContextProperty("motionLevel", motion)
+        self._qml_workspace.rootContext().setContextProperty(
+            "materialStrength", material_strength / 100.0
+        )
 
     def _open_model_center(self) -> None:
         dialog = ModelCenterDialog(self._settings, self)
@@ -1288,6 +1365,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._board.set_ownership((), 0)
         self._board.set_markup(self._controller.current_node.properties)
         self._board.set_game(self.game)
+        self._analysis_graph.set_current_move(max(0, len(self._controller.session.path) - 1))
         self._comment_editor.setPlainText(
             "\n".join(self._controller.current_node.values("C"))
         )

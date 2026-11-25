@@ -34,6 +34,20 @@ _PALETTES = {
         "selected": "#d1e9e6",
         "danger": "#b34f45",
     },
+    "High contrast": {
+        "window": "#000000",
+        "surface": "#090909",
+        "raised": "#171717",
+        "input": "#000000",
+        "text": "#ffffff",
+        "muted": "#d0d0d0",
+        "border": "#ffffff",
+        "accent": "#00ffd0",
+        "accent_text": "#000000",
+        "hover": "#292929",
+        "selected": "#11473f",
+        "danger": "#ff8b80",
+    },
 }
 
 

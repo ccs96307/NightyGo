@@ -9,12 +9,16 @@ from nightygo.i18n import translate
 class AnalysisGraph(QtWidgets.QWidget):
     """Draw per-move win rates from Black's perspective."""
 
+    move_selected = QtCore.Signal(int)
+
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._points: tuple[tuple[int, float], ...] = ()
         self._language = "en"
         self._theme = "Dark"
         self._font_size = 14
+        self._current_move: int | None = None
+        self.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
         self.setMinimumHeight(126)
         self.setSizePolicy(
             QtWidgets.QSizePolicy.Policy.Expanding,
@@ -36,6 +40,20 @@ class AnalysisGraph(QtWidgets.QWidget):
     def set_font_size(self, size: int) -> None:
         self._font_size = size
         self.update()
+
+    def set_current_move(self, move: int | None) -> None:
+        self._current_move = move
+        self.update()
+
+    def mousePressEvent(self, event: QtGui.QMouseEvent) -> None:
+        if event.button() == QtCore.Qt.MouseButton.LeftButton and self._points:
+            first = self._points[0][0]
+            last = max(first + 1, self._points[-1][0])
+            rect = self.rect().adjusted(30, 10, -10, -22)
+            move = round(first + (event.position().x() - rect.left()) / max(1, rect.width()) * (last - first))
+            move = min(last, max(first, move))
+            self.move_selected.emit(move)
+        super().mousePressEvent(event)
 
     def paintEvent(self, _event: QtGui.QPaintEvent) -> None:
         painter = QtGui.QPainter(self)
@@ -79,4 +97,13 @@ class AnalysisGraph(QtWidgets.QWidget):
             x = rect.left() + (move - first_move) / (last_move - first_move) * rect.width()
             y = rect.bottom() - min(1.0, max(0.0, winrate)) * rect.height()
             painter.drawEllipse(QtCore.QPointF(x, y), 2.1, 2.1)
+        if self._current_move is not None:
+            selected = min(self._points, key=lambda item: abs(item[0] - self._current_move))
+            x = rect.left() + (selected[0] - first_move) / (last_move - first_move) * rect.width()
+            y = rect.bottom() - min(1.0, max(0.0, selected[1])) * rect.height()
+            painter.setPen(QtGui.QPen(QtGui.QColor("#ffd166"), 1.5, QtCore.Qt.PenStyle.DashLine))
+            painter.drawLine(QtCore.QPointF(x, rect.top()), QtCore.QPointF(x, rect.bottom()))
+            painter.setBrush(QtGui.QColor("#ffd166"))
+            painter.setPen(QtGui.QPen(QtGui.QColor("#0f1722"), 1.5))
+            painter.drawEllipse(QtCore.QPointF(x, y), 5, 5)
         painter.end()

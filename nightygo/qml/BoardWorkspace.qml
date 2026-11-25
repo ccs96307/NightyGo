@@ -16,6 +16,7 @@ Rectangle {
     property string stoneTexture: stoneMaterialName
     property string motion: motionLevel
     property real skyPhase: 0
+    property real materialStrength: 1.0
 
     Timer {
         interval: root.motion === "full" ? 33 : 100
@@ -75,6 +76,7 @@ Rectangle {
                 wood.addColorStop(0.5, "#d8aa64")
                 wood.addColorStop(1, "#c89550")
             }
+            ctx.globalAlpha = root.materialStrength
             ctx.fillStyle = wood
             ctx.fillRect(0, 0, side, side)
             if (root.boardTexture !== "Classic wood") {
@@ -95,6 +97,7 @@ Rectangle {
                     ctx.beginPath(); ctx.arc(x, y, i % 13 === 0 ? 1.5 : 0.8, 0, Math.PI * 2); ctx.fill()
                 }
             }
+            ctx.globalAlpha = 1.0
             ctx.strokeStyle = root.boardTexture === "Classic wood" ? "#47351f" : "rgba(210,225,255,0.72)"
             ctx.lineWidth = Math.max(1, step * 0.025)
             for (let i = 0; i < root.boardSize; ++i) {

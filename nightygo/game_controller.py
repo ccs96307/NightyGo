@@ -15,6 +15,11 @@ from nightygo.sgf_session import SgfGameSession
 logger = logging.getLogger(__name__)
 
 
+def _encode_point(point: tuple[int, int]) -> str:
+    x, y = point
+    return chr(ord("a") + x) + chr(ord("a") + y)
+
+
 class GameController(QtCore.QObject):
     """Own the current SGF collection and expose game actions to any UI."""
 
@@ -209,6 +214,19 @@ class GameController(QtCore.QObject):
             self.session.root.properties.pop(identifier, None)
         self._publish()
 
+    def set_game_info(self, values: dict[str, str]) -> None:
+        """Update standard SGF root metadata in one state change."""
+        allowed = {"PB", "PW", "BR", "WR", "DT", "EV", "RO", "RE", "KM", "RU", "TM", "OT"}
+        for identifier, value in values.items():
+            if identifier not in allowed:
+                self._emit_error(f"Unsupported game-info property: {identifier}")
+                return
+            if value.strip():
+                self.session.root.properties[identifier] = [value.strip()]
+            else:
+                self.session.root.properties.pop(identifier, None)
+        self._publish()
+
     @QtCore.Slot(str)
     def set_current_comment(self, comment: str) -> None:
         """Edit the SGF comment on the current node."""
@@ -217,6 +235,75 @@ class GameController(QtCore.QObject):
         else:
             self.session.current_node.properties.pop("C", None)
         self._publish()
+
+    @QtCore.Slot(str, int, int, str)
+    def add_markup(self, kind: str, x: int, y: int, label: str = "") -> None:
+        """Add an SGF point annotation to the current node."""
+        identifiers = {
+            "triangle": "TR",
+            "square": "SQ",
+            "circle": "CR",
+            "cross": "MA",
+        }
+        identifier = "LB" if kind == "label" else identifiers.get(kind)
+        if identifier is None:
+            self._emit_error(f"Unsupported markup type: {kind}")
+            return
+        try:
+            point = _encode_point((x, y))
+            if not (0 <= x < self.game.size and 0 <= y < self.game.size):
+                raise ValueError("Markup point is outside the board")
+        except ValueError as error:
+            self._emit_error(str(error))
+            return
+        value = f"{point}:{label}" if kind == "label" else point
+        values = self.session.current_node.properties.setdefault(identifier, [])
+        if value not in values:
+            values.append(value)
+        self._publish()
+
+    @QtCore.Slot(str, int, int, int, int)
+    def add_line_markup(self, kind: str, x1: int, y1: int, x2: int, y2: int) -> None:
+        """Add an SGF line or arrow between two board points."""
+        identifier = {"line": "LN", "arrow": "AR"}.get(kind)
+        if identifier is None:
+            self._emit_error(f"Unsupported line markup type: {kind}")
+            return
+        if not all(0 <= x < self.game.size and 0 <= y < self.game.size for x, y in ((x1, y1), (x2, y2))):
+            self._emit_error("Markup point is outside the board")
+            return
+        value = f"{_encode_point((x1, y1))}:{_encode_point((x2, y2))}"
+        values = self.session.current_node.properties.setdefault(identifier, [])
+        if value not in values:
+            values.append(value)
+        self._publish()
+
+    @QtCore.Slot()
+    def delete_current_variation(self) -> bool:
+        """Delete the current node and its descendants, returning to its parent."""
+        if len(self.session.path) <= 1:
+            self._emit_error("The root position cannot be deleted")
+            return False
+        node = self.session.current_node
+        parent = self.session.path[-2]
+        parent.children.remove(node)
+        self.session.navigate_to(parent)
+        self._publish()
+        return True
+
+    @QtCore.Slot(result=bool)
+    def make_current_variation_mainline(self) -> bool:
+        """Move the current variation to the first-child (main line) position."""
+        if len(self.session.path) <= 1:
+            self._emit_error("The root position has no parent variation")
+            return False
+        node = self.session.current_node
+        parent = self.session.path[-2]
+        index = parent.children.index(node)
+        if index:
+            parent.children.insert(0, parent.children.pop(index))
+            self._publish()
+        return True
 
     def _navigate(self, callback) -> bool:
         try:

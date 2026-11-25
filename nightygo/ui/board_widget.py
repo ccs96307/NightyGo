@@ -13,12 +13,15 @@ class BoardWidget(QtWidgets.QWidget):
     """Draw a Go board and emit clicked intersections."""
 
     point_clicked = QtCore.Signal(int, int)
+    markupRequested = QtCore.Signal(int, int, str)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._game: GoGame | None = None
         self._hover_point: tuple[int, int] | None = None
         self._analysis_points: tuple[tuple[int, int, int], ...] = ()
+        self._markup_properties: dict[str, list[str]] = {}
+        self._markup_mode = ""
         self._board_material = "wood"
         self._stone_material = "classic"
         self._animation_phase = 0.0
@@ -97,6 +100,21 @@ class BoardWidget(QtWidgets.QWidget):
         self._analysis_points = tuple(points)
         self.update()
 
+    def set_markup(self, properties: dict[str, list[str]]) -> None:
+        """Set SGF annotations for the currently displayed node."""
+        keys = ("TR", "SQ", "CR", "MA", "LB", "AR", "LN")
+        self._markup_properties = {key: list(properties.get(key, [])) for key in keys}
+        self.update()
+
+    def set_markup_mode(self, mode: str = "") -> None:
+        """Route the next board click to a markup tool instead of playing."""
+        self._markup_mode = mode
+        self.setCursor(
+            QtCore.Qt.CursorShape.CrossCursor
+            if mode
+            else QtCore.Qt.CursorShape.ArrowCursor
+        )
+
     def _grid_geometry(self) -> tuple[float, float, float]:
         size = self._game.size if self._game else 19
         side = min(self.width(), self.height())
@@ -141,7 +159,13 @@ class BoardWidget(QtWidgets.QWidget):
         if event.button() == QtCore.Qt.MouseButton.LeftButton:
             point = self._point_at(event.position())
             if point is not None:
-                self.point_clicked.emit(*point)
+                if self._markup_mode:
+                    mode = self._markup_mode
+                    if mode not in ("line", "arrow"):
+                        self.set_markup_mode("")
+                    self.markupRequested.emit(point[0], point[1], mode)
+                else:
+                    self.point_clicked.emit(*point)
         super().mousePressEvent(event)
 
     def paintEvent(self, event: QtGui.QPaintEvent) -> None:
@@ -225,7 +249,81 @@ class BoardWidget(QtWidgets.QWidget):
                 target = QtCore.QRectF(center.x() - diameter / 2, center.y() - diameter / 2, diameter, diameter)
                 preview = stone_preview(self._game.to_play, self._stone_material)
                 painter.drawPixmap(target, preview, QtCore.QRectF(preview.rect()))
+        self._draw_markup(painter, left, top, step)
         painter.end()
+
+    def _draw_markup(
+        self,
+        painter: QtGui.QPainter,
+        left: float,
+        top: float,
+        step: float,
+    ) -> None:
+        size = self._game.size
+        ink = QtGui.QColor("#d6422f" if self._board_material == "wood" else "#ffd166")
+        pen = QtGui.QPen(ink, max(1.5, step * 0.075))
+        pen.setCapStyle(QtCore.Qt.PenCapStyle.RoundCap)
+        pen.setJoinStyle(QtCore.Qt.PenJoinStyle.RoundJoin)
+        painter.setPen(pen)
+        painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
+
+        def point(value: str) -> QtCore.QPointF | None:
+            if len(value) != 2:
+                return None
+            x, y = ord(value[0]) - ord("a"), ord(value[1]) - ord("a")
+            if not (0 <= x < size and 0 <= y < size):
+                return None
+            return QtCore.QPointF(left + x * step, top + y * step)
+
+        radius = step * 0.34
+        for key in ("TR", "SQ", "CR", "MA"):
+            for value in self._markup_properties[key]:
+                center = point(value)
+                if center is None:
+                    continue
+                if key == "CR":
+                    painter.drawEllipse(center, radius, radius)
+                elif key == "SQ":
+                    painter.drawRect(QtCore.QRectF(center.x() - radius, center.y() - radius, radius * 2, radius * 2))
+                elif key == "MA":
+                    painter.drawLine(center + QtCore.QPointF(-radius, -radius), center + QtCore.QPointF(radius, radius))
+                    painter.drawLine(center + QtCore.QPointF(-radius, radius), center + QtCore.QPointF(radius, -radius))
+                else:
+                    path = QtGui.QPainterPath(
+                        center + QtCore.QPointF(0, -radius)
+                    )
+                    path.lineTo(center + QtCore.QPointF(radius, radius * 0.8))
+                    path.lineTo(center + QtCore.QPointF(-radius, radius * 0.8))
+                    path.closeSubpath()
+                    painter.drawPath(path)
+
+        for value in self._markup_properties["LB"]:
+            point_value, separator, label = value.partition(":")
+            center = point(point_value)
+            if center is None or not separator:
+                continue
+            font = painter.font()
+            font.setBold(True)
+            font.setPointSizeF(max(8.0, step * 0.32))
+            painter.setFont(font)
+            painter.setPen(QtGui.QColor("#f4f6fb" if self._board_material != "wood" else "#20170e"))
+            painter.drawText(QtCore.QRectF(center.x() - step * 0.4, center.y() - step * 0.4, step * 0.8, step * 0.8), QtCore.Qt.AlignmentFlag.AlignCenter, label)
+            painter.setPen(pen)
+
+        for key in ("AR", "LN"):
+            for value in self._markup_properties[key]:
+                start, separator, end = value.partition(":")
+                first, last = point(start), point(end)
+                if not separator or first is None or last is None:
+                    continue
+                painter.drawLine(first, last)
+                if key == "AR":
+                    direction = last - first
+                    unit = direction / max(1.0, math.hypot(direction.x(), direction.y()))
+                    perpendicular = QtCore.QPointF(-unit.y(), unit.x())
+                    base = last - unit * (step * 0.38)
+                    painter.drawLine(last, base + perpendicular * (step * 0.2))
+                    painter.drawLine(last, base - perpendicular * (step * 0.2))
 
     def _draw_analysis_points(
         self,

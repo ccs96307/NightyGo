@@ -10,15 +10,19 @@
 
 ```bash
 uv sync --locked
-uv run python -m nightygo
+uv run --locked python -m nightygo
 ```
+
+程式會以時間、嚴重程度與模組名稱輸出標準 log。啟動前設定
+`NIGHTYGO_LOG_LEVEL=DEBUG` 可顯示診斷細節。
 
 ## 功能
 
 - 在 19×19 棋盤上落子與虛手，支援提子、自殺手判定與單劫規則。
 - 落子前顯示半透明棋子預覽，並可選擇五組真實圍棋落子錄音。
+- 可切換經典木紋、星空或夜空棋盤，以及傳統、星空或月岩棋子材質。
 - 悔棋，並點選棋譜樹中的節點跳至局面或瀏覽變化分支。
 - 匯入與匯出 SGF 棋譜集，保留註解與其他變化線。
 
 使用「File → Open SGF」開啟棋譜，使用「File → Save SGF」儲存。
-可在「Settings → Preferences」預聽並選擇圍棋落子音效，或調整介面字級。預設字級為 14 pt，設定會自動記住。
+可在「Settings → Preferences」預聽落子音效、調整字級與選擇材質，設定會自動記住。側邊面板標題列已加入較大的放大／還原與關閉按鈕。

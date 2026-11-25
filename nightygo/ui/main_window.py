@@ -1,15 +1,21 @@
 """Main NightyGo application window."""
 
 from pathlib import Path
+import logging
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from nightygo.audio import StonePlacementSound
 from nightygo.model import BLACK, WHITE, IllegalMove
+from nightygo.materials import STONE_MATERIALS
 from nightygo.sgf import SgfCollection, SgfError, read_sgf, write_sgf
 from nightygo.sgf_session import SgfGameSession
 from nightygo.ui.board_widget import BoardWidget
+from nightygo.ui.dock_title_bar import DockTitleBar
 from nightygo.ui.game_tree_view import GameTreeView
+
+
+logger = logging.getLogger(__name__)
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -27,6 +33,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._current_path: str | None = None
         self._stone_sound = StonePlacementSound(self)
         self._board = BoardWidget(self)
+        self._board.set_board_material(self._settings.value("board_material", "Classic wood"))
+        self._board.set_stone_material(self._settings.value("stone_material", "Traditional"))
         self._board.set_game(self.game)
         self._board.point_clicked.connect(self._play_at)
 
@@ -52,6 +60,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self._tree_dock = QtWidgets.QDockWidget("Game Tree", self)
         self._tree_dock.setObjectName("gameTreeDock")
         self._tree_dock.setWidget(self._game_tree)
+        self._tree_dock.setTitleBarWidget(DockTitleBar(self._tree_dock))
+        self._game_tree.set_stone_material(
+            self._settings.value("stone_material", "Traditional")
+        )
 
         undo_action = QtGui.QAction("Undo", self)
         undo_action.setShortcut(QtGui.QKeySequence.StandardKey.Undo)
@@ -80,6 +92,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._controls_dock = QtWidgets.QDockWidget("Controls", self)
         self._controls_dock.setObjectName("controlsDock")
         self._controls_dock.setWidget(controls_widget)
+        self._controls_dock.setTitleBarWidget(DockTitleBar(self._controls_dock))
 
         layout = QtWidgets.QVBoxLayout()
         layout.addWidget(self._board, 1)
@@ -121,6 +134,7 @@ class MainWindow(QtWidgets.QMainWindow):
             move = self.game.play(x, y)
             self._session.append_move(move)
         except (IllegalMove, SgfError) as error:
+            logger.debug("Rejected move at (%d, %d): %s", x, y, error)
             self.statusBar().showMessage(str(error), 3000)
             return
         self.game = self._session.game
@@ -175,6 +189,7 @@ class MainWindow(QtWidgets.QMainWindow):
             collection = read_sgf(path)
             session = SgfGameSession(collection.games[0], start_at_end=True)
         except (OSError, SgfError, ValueError) as error:
+            logger.exception("Could not open SGF %s", path)
             self._show_error("Could not open SGF", error)
             return
         self._collection = collection
@@ -182,6 +197,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._current_path = path
         self.game = session.game
         self._refresh()
+        logger.info("Opened SGF %s (%d game tree(s))", path, len(collection.games))
         if len(collection.games) > 1:
             self.statusBar().showMessage(
                 f"Loaded first game; preserving all {len(collection.games)} games when saving", 6000
@@ -207,9 +223,11 @@ class MainWindow(QtWidgets.QMainWindow):
         try:
             write_sgf(self._collection, path)
         except (OSError, SgfError) as error:
+            logger.exception("Could not save SGF %s", path)
             self._show_error("Could not save SGF", error)
             return
         self._current_path = path
+        logger.info("Saved SGF %s", path)
         self.statusBar().showMessage(f"Saved {path}", 3000)
 
     def _show_error(self, title: str, error: Exception) -> None:
@@ -239,12 +257,23 @@ class MainWindow(QtWidgets.QMainWindow):
         sound_row.addWidget(sound_selector, 1)
         sound_row.addWidget(preview_button)
 
+        board_selector = QtWidgets.QComboBox(dialog)
+        board_selector.addItems(BoardWidget.available_board_materials())
+        board_selector.setCurrentText(
+            self._settings.value("board_material", "Classic wood")
+        )
+        stone_selector = QtWidgets.QComboBox(dialog)
+        stone_selector.addItems(STONE_MATERIALS)
+        stone_selector.setCurrentText(
+            self._settings.value("stone_material", "Traditional")
+        )
+
         form = QtWidgets.QFormLayout()
         form.addRow("Application font size", font_size)
         form.addRow("Go stone placement sound", sound_row)
-        source_hint = QtWidgets.QLabel(
-            "Five real Go-stone recordings from two board types."
-        )
+        form.addRow("Board texture", board_selector)
+        form.addRow("Stone texture", stone_selector)
+        source_hint = QtWidgets.QLabel("Five real Go-stone recordings from two board types.")
         source_hint.setWordWrap(True)
         buttons = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.StandardButton.Ok
@@ -262,9 +291,23 @@ class MainWindow(QtWidgets.QMainWindow):
 
         size = font_size.value()
         selected_sound = sound_selector.currentText()
+        selected_board = board_selector.currentText()
+        selected_stones = stone_selector.currentText()
         self._settings.setValue("font_size", size)
         self._settings.setValue("placement_sound", selected_sound)
+        self._settings.setValue("board_material", selected_board)
+        self._settings.setValue("stone_material", selected_stones)
         self._stone_sound.set_sound(selected_sound)
+        self._board.set_board_material(selected_board)
+        self._board.set_stone_material(selected_stones)
+        self._game_tree.set_stone_material(selected_stones)
+        logger.info(
+            "Preferences updated: font=%d pt, board=%s, stones=%s, sound=%s",
+            size,
+            selected_board,
+            selected_stones,
+            selected_sound,
+        )
         self._set_font_size(size)
 
     def _set_font_size(self, size: int) -> None:

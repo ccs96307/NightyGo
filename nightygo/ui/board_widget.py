@@ -2,6 +2,7 @@
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from nightygo.materials import BOARD_MATERIALS, board_texture
 from nightygo.model import EMPTY, GoGame
 from nightygo.preview import stone_pixmap, stone_preview
 
@@ -15,8 +16,31 @@ class BoardWidget(QtWidgets.QWidget):
         super().__init__(parent)
         self._game: GoGame | None = None
         self._hover_point: tuple[int, int] | None = None
+        self._board_material = "wood"
+        self._stone_material = "classic"
         self.setMinimumSize(440, 440)
         self.setMouseTracking(True)
+
+    @staticmethod
+    def available_board_materials() -> tuple[str, ...]:
+        """Return user-facing board texture names."""
+        return tuple(BOARD_MATERIALS)
+
+    def set_board_material(self, material: str) -> None:
+        """Set the board surface texture and repaint."""
+        if material in BOARD_MATERIALS:
+            self._board_material = BOARD_MATERIALS[material]
+            self.update()
+
+    def set_stone_material(self, material: str) -> None:
+        """Set the material used to render placed and preview stones."""
+        if material in ("Traditional", "Starfield", "Moonstone"):
+            self._stone_material = {
+                "Traditional": "classic",
+                "Starfield": "starfield",
+                "Moonstone": "moonstone",
+            }[material]
+            self.update()
 
     def set_game(self, game: GoGame) -> None:
         """Set the model snapshot to draw."""
@@ -73,15 +97,29 @@ class BoardWidget(QtWidgets.QWidget):
     def paintEvent(self, event: QtGui.QPaintEvent) -> None:
         painter = QtGui.QPainter(self)
         painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
-        painter.fillRect(self.rect(), QtGui.QColor("#d7ad68"))
+        outside_color = "#d7ad68" if self._board_material == "wood" else "#0b1021"
+        painter.fillRect(self.rect(), QtGui.QColor(outside_color))
         if self._game is None:
             painter.end()
             return
 
         left, top, step = self._grid_geometry()
+        side = min(self.width(), self.height())
+        surface = QtCore.QRectF(
+            (self.width() - side) / 2,
+            (self.height() - side) / 2,
+            side,
+            side,
+        )
+        painter.drawImage(surface, board_texture(self._board_material))
         last = left + (self._game.size - 1) * step
         bottom = top + (self._game.size - 1) * step
-        pen = QtGui.QPen(QtGui.QColor("#392a1b"), max(1.0, step * 0.035))
+        line_color = {
+            "wood": "#392a1b",
+            "starfield": "#a9b8df",
+            "night_sky": "#c4d4e8",
+        }[self._board_material]
+        pen = QtGui.QPen(QtGui.QColor(line_color), max(1.0, step * 0.035))
         painter.setPen(pen)
         for index in range(self._game.size):
             offset = index * step
@@ -96,7 +134,7 @@ class BoardWidget(QtWidgets.QWidget):
                     continue
                 center = QtCore.QPointF(left + x * step, top + y * step)
                 target = QtCore.QRectF(center.x() - diameter / 2, center.y() - diameter / 2, diameter, diameter)
-                pixmap = stone_pixmap(color)
+                pixmap = stone_pixmap(color, self._stone_material)
                 painter.drawPixmap(target, pixmap, QtCore.QRectF(pixmap.rect()))
 
         move = self._game.last_move
@@ -113,7 +151,7 @@ class BoardWidget(QtWidgets.QWidget):
             if self._game.board[y][x] == EMPTY:
                 center = QtCore.QPointF(left + x * step, top + y * step)
                 target = QtCore.QRectF(center.x() - diameter / 2, center.y() - diameter / 2, diameter, diameter)
-                preview = stone_preview(self._game.to_play)
+                preview = stone_preview(self._game.to_play, self._stone_material)
                 painter.drawPixmap(target, preview, QtCore.QRectF(preview.rect()))
         painter.end()
 
@@ -128,7 +166,12 @@ class BoardWidget(QtWidgets.QWidget):
         else:
             coordinates = (size // 2,)
         painter.setPen(QtCore.Qt.PenStyle.NoPen)
-        painter.setBrush(QtGui.QColor("#392a1b"))
+        star_color = {
+            "wood": "#392a1b",
+            "starfield": "#ffe5a0",
+            "night_sky": "#d6e4ff",
+        }[self._board_material]
+        painter.setBrush(QtGui.QColor(star_color))
         radius = max(1.5, step * 0.065)
         for x in coordinates:
             for y in coordinates:

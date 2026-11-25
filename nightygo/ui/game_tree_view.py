@@ -20,6 +20,7 @@ class _MoveItem(QtWidgets.QGraphicsObject):
         selected: bool,
         tooltip: str,
         font_size: int,
+        stone_material: str,
     ) -> None:
         super().__init__()
         self.node = node
@@ -27,6 +28,7 @@ class _MoveItem(QtWidgets.QGraphicsObject):
         self.color = color
         self.selected = selected
         self.font_size = font_size
+        self.stone_material = stone_material
         self.radius = max(12.0, font_size * 0.9)
         self.setToolTip(tooltip)
         self.setAcceptedMouseButtons(QtCore.Qt.MouseButton.LeftButton)
@@ -42,7 +44,7 @@ class _MoveItem(QtWidgets.QGraphicsObject):
             painter.setBrush(QtGui.QColor("#e0b96f"))
             painter.drawEllipse(self.boundingRect().adjusted(4, 4, -4, -4))
         else:
-            image = stone_pixmap(self.color)
+            image = stone_pixmap(self.color, self.stone_material)
             image_rect = self.boundingRect().adjusted(1, 1, -1, -1)
             painter.drawPixmap(image_rect, image, QtCore.QRectF(image.rect()))
         if self.selected:
@@ -85,6 +87,7 @@ class GameTreeView(QtWidgets.QGraphicsView):
         self.setMinimumWidth(210)
         self.setBackgroundBrush(QtGui.QColor("#faf8f3"))
         self._font_size = 14
+        self._stone_material = "classic"
         self._root = None
         self._current = None
         self._board_size = 19
@@ -92,6 +95,16 @@ class GameTreeView(QtWidgets.QGraphicsView):
     def set_font_size(self, size: int) -> None:
         """Resize move labels and nodes with the application font setting."""
         self._font_size = size
+        if self._root is not None:
+            self.set_tree(self._root, self._current, self._board_size)
+
+    def set_stone_material(self, material: str) -> None:
+        """Set the material used for move markers in the tree."""
+        self._stone_material = {
+            "Traditional": "classic",
+            "Starfield": "starfield",
+            "Moonstone": "moonstone",
+        }.get(material, "classic")
         if self._root is not None:
             self.set_tree(self._root, self._current, self._board_size)
 
@@ -187,6 +200,7 @@ class GameTreeView(QtWidgets.QGraphicsView):
                 node is current,
                 " · ".join(details),
                 self._font_size,
+                self._stone_material,
             )
             item.setPos(*positions[key])
             item.clicked.connect(self.node_selected)

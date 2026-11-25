@@ -1,46 +1,48 @@
-# English Document
-## NightyGo
-A Go program for recording your game.
+# NightyGo
 
-## Version
-20190903 ver.0.0.2
+English | [繁體中文](README.zh-TW.md)
 
-## Functions
-- put your stone on the board.
-- A red lebel will show at the current stone
+A PySide6 Go play, record-editing, and AI-review studio. It supports SGF
+variations, board annotations, a local game library, KataGo live analysis and
+full-game review. Choose a dark or warm-light theme, or preview the Qt Quick
+board workspace.
 
-## TODO
-- Convert a sgf file
-- Graphic tree
-- Any play mode (you can put the white stone or black stone when you want!)
-- display coordinate
-- display number of game
-- display a symbol at the current stone
-- Auto resize the window size
-- add a fashion UI
-- Convert to HTML file
-- Optimization
+## Development setup
 
-##
-# 中文說明
-## NightyGo
-一個可供人記譜用的圍棋應用程式
+This project uses uv and PySide6. From the repository root, run:
 
-## 版本
-20190903 ver.0.0.2
+```bash
+uv sync --locked
+uv run --locked python -m nightygo
+```
 
-## 功能
-- 目前僅只能放置棋子到棋盤上，提子、打劫、不能自殺 ...... 等等的邏輯已經完成。
-- 有紅色光標會出現在當前的棋子上
+Application logs include timestamps, severity levels, and module names. Set
+`NIGHTYGO_LOG_LEVEL=DEBUG` before launch to enable diagnostic details.
 
-## TODO
-- 轉換成 sgf 檔案（可以存檔）
-- 圖形化的流程樹（你可以自動回滾到任何想要的地方！）
-- 任意落子模式 (你可以自由落下黑棋白棋，方便製作死活提！)
-- 顯示座標
-- 顯示棋譜的手數號碼
-- 顯示當前落子符號
-- 自動適應窗口大小
-- 新增時髦的界面
-- 轉換成 HTML 可嵌入檔案
-- 優化！ （我想完成所有的功能再來一次調整）
+## Features
+
+- Play and pass on a 19×19 board, with captures, suicide prevention, and simple ko.
+- Preview a translucent stone before placing it and choose among five real Go-stone recordings.
+- Choose wood, starfield, or night-sky board surfaces and traditional, starfield, or moonstone stones.
+- Undo moves and click any node in the game tree to jump to that position or browse variations.
+- Import and export SGF collections while preserving annotations and alternate lines.
+- Edit game metadata, comments, main lines and variations, plus triangle, square, circle, cross, label, line and arrow markup.
+- Search recent records by players, event, result and custom tags; unsaved games receive recovery snapshots.
+- Configure the KataGo engine and model together in **Settings → AI Model Center**. It recommends model tiers from available RAM / NVIDIA VRAM, installs a compatible official OpenCL engine on 64-bit Linux and Windows, and downloads/selects network models.
+- Use KataGo for asynchronous candidate moves, win rate, score lead and ownership; review a full main line with a win-rate graph and jump links for major swings.
+- Preview the Qt Quick board from **View → QML workspace preview**; choose a dark or warm-light theme, font size and animated sky preference in Settings.
+
+Use **File → Open SGF** to load a record and **File → Save SGF** to save it.
+AI setup is managed in AI Model Center. Select a network and choose **Download
+engine and configure selected AI** to install the official engine and fetch/select
+the network in one workflow. Existing engine binaries and advanced launch
+arguments are also managed there. Models and managed engines are stored under
+the application data directory. Automatic engine installation currently targets
+64-bit Linux and Windows using official OpenCL packages; other systems can select
+an existing KataGo binary. Memory advice uses available RAM/VRAM and model
+architecture; actual needs also depend on backend and search-cache settings.
+Preferences remember the placement sound, font size, theme, animation and
+board/stone materials.
+Use the language selector in the top toolbar to switch the interface among
+English, Traditional Chinese, Simplified Chinese, Japanese and Korean; the
+selection is remembered.

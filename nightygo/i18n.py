@@ -1,0 +1,320 @@
+"""Runtime translations for NightyGo's application-owned interface text."""
+
+from __future__ import annotations
+
+from PySide6 import QtWidgets
+
+
+LANGUAGES = {
+    "en": "English",
+    "zh_TW": "繁體中文",
+    "zh_CN": "简体中文",
+    "ja": "日本語",
+    "ko": "한국어",
+}
+
+# Source text, followed by English, Traditional Chinese, Simplified Chinese,
+# Japanese, and Korean. Technical model names remain as published upstream.
+_ROWS = (
+    ("Language", "Language", "語言", "语言", "言語", "언어"),
+    ("Go · Study Studio", "GO  ·  STUDY STUDIO", "圍棋 · 棋譜工作室", "围棋 · 棋谱工作室", "碁 · 棋譜スタジオ", "바둑 · 기보 스튜디오"),
+    ("File", "File", "檔案", "文件", "ファイル", "파일"),
+    ("Edit", "Edit", "編輯", "编辑", "編集", "편집"),
+    ("View", "View", "檢視", "视图", "表示", "보기"),
+    ("Settings", "Settings", "設定", "设置", "設定", "설정"),
+    ("Preferences…", "Preferences…", "偏好設定…", "偏好设置…", "設定…", "환경 설정…"),
+    ("AI Model Center…", "AI Model Center…", "AI 模型中心…", "AI 模型中心…", "AIモデルセンター…", "AI 모델 센터…"),
+    ("Game Tree", "Game Tree", "棋譜樹", "棋谱树", "棋譜ツリー", "기보 트리"),
+    ("AI Analysis", "AI Analysis", "AI 分析", "AI 分析", "AI解析", "AI 분석"),
+    ("Configure KataGo…", "Configure KataGo…", "設定 KataGo…", "配置 KataGo…", "KataGo を設定…", "KataGo 설정…"),
+    ("Comments", "Comments", "註解", "注释", "コメント", "주석"),
+    ("Game Library", "Game Library", "棋譜庫", "棋谱库", "棋譜ライブラリ", "기보 라이브러리"),
+    ("No saved games yet", "No saved games yet", "目前沒有已儲存的棋譜", "目前没有已保存的棋谱", "保存済みの棋譜はありません", "저장된 기보가 없습니다"),
+    ("No games match this search", "No games match this search", "沒有符合搜尋條件的棋譜", "没有符合搜索条件的棋谱", "検索条件に一致する棋譜はありません", "검색 결과가 없습니다"),
+    ("Controls", "Controls", "操作", "操作", "操作", "컨트롤"),
+    ("New Game", "New Game", "新對局", "新对局", "新しい対局", "새 대국"),
+    ("Open SGF…", "Open SGF…", "開啟 SGF…", "打开 SGF…", "SGFを開く…", "SGF 열기…"),
+    ("Save SGF", "Save SGF", "儲存 SGF", "保存 SGF", "SGFを保存", "SGF 저장"),
+    ("Save SGF As…", "Save SGF As…", "另存 SGF…", "SGF を另存为…", "SGFを別名で保存…", "SGF 다른 이름으로 저장…"),
+    ("Game information…", "Game information…", "棋局資訊…", "棋局信息…", "対局情報…", "대국 정보…"),
+    ("Edit current comment", "Edit current comment", "編輯目前註解", "编辑当前注释", "現在のコメントを編集", "현재 주석 편집"),
+    ("Make current variation the main line", "Make current variation the main line", "將目前變化設為主線", "将当前变化设为主线", "現在の変化を本譜にする", "현재 변화를 본선으로 설정"),
+    ("Delete current variation", "Delete current variation", "刪除目前變化", "删除当前变化", "現在の変化を削除", "현재 변화 삭제"),
+    ("Add board markup", "Add board markup", "新增棋盤標記", "添加棋盘标记", "盤面マークを追加", "바둑판 표시 추가"),
+    ("Triangle", "Triangle", "三角形", "三角形", "三角", "삼각형"),
+    ("Square", "Square", "方形", "方形", "四角", "사각형"),
+    ("Circle", "Circle", "圓形", "圆形", "丸", "원"),
+    ("Cross mark", "Cross mark", "叉號", "叉号", "バツ印", "십자 표시"),
+    ("Text label…", "Text label…", "文字標籤…", "文字标签…", "テキストラベル…", "텍스트 라벨…"),
+    ("Line", "Line", "線", "线", "線", "선"),
+    ("Arrow", "Arrow", "箭頭", "箭头", "矢印", "화살표"),
+    ("Undo", "Undo", "悔棋", "悔棋", "一手戻す", "한 수 무르기"),
+    ("Redo", "Redo", "重做", "重做", "やり直す", "다시 실행"),
+    ("Previous", "Previous", "上一步", "上一步", "前へ", "이전"),
+    ("Next", "Next", "下一步", "下一步", "次へ", "다음"),
+    ("Pass", "Pass", "虛手", "虚手", "パス", "패스"),
+    ("Review full game", "Review full game", "整盤覆盤", "整盘复盘", "全局を検討", "전체 대국 복기"),
+    ("Stop review", "Stop review", "停止覆盤", "停止复盘", "検討を停止", "복기 중지"),
+    ("Analyze position", "Analyze position", "分析局面", "分析局面", "局面を解析", "국면 분석"),
+    ("Stop", "Stop", "停止", "停止", "停止", "중지"),
+    ("Play selected move", "Play selected move", "下此候選著", "下此候选着", "選択した手を打つ", "선택한 수 두기"),
+    ("Ownership overlay", "Ownership overlay", "領地覆疊", "领地叠加", "地の支配を重ねて表示", "영역 오버레이"),
+    ("Comments for the selected move…", "Comments for the selected move…", "為目前棋步輸入註解…", "为当前棋步输入注释…", "選択した手のコメント…", "선택한 수의 주석…"),
+    ("Save comment", "Save comment", "儲存註解", "保存注释", "コメントを保存", "주석 저장"),
+    ("Search players, event, result, or tags", "Search players, event, result, or tags", "搜尋棋手、賽事、結果或標籤", "搜索棋手、赛事、结果或标签", "棋士・大会・結果・タグを検索", "선수·대회·결과·태그 검색"),
+    ("Edit tags…", "Edit tags…", "編輯標籤…", "编辑标签…", "タグを編集…", "태그 편집…"),
+    ("QML workspace preview", "QML workspace preview", "QML 工作區預覽", "QML 工作区预览", "QMLワークスペースをプレビュー", "QML 작업 공간 미리보기"),
+    ("NightyGo Preferences", "NightyGo Preferences", "NightyGo 偏好設定", "NightyGo 偏好设置", "NightyGo 設定", "NightyGo 환경 설정"),
+    ("Application font size", "Application font size", "介面字級", "界面字号", "アプリの文字サイズ", "앱 글꼴 크기"),
+    ("Application theme", "Application theme", "介面主題", "界面主题", "アプリのテーマ", "앱 테마"),
+    ("Animated board backgrounds", "Animated board backgrounds", "棋盤背景動畫", "棋盘背景动画", "盤面背景のアニメーション", "바둑판 배경 애니메이션"),
+    ("Go stone placement sound", "Go stone placement sound", "圍棋落子音效", "围棋落子音效", "碁石の着手音", "바둑돌 착수 소리"),
+    ("Board texture", "Board texture", "棋盤材質", "棋盘材质", "盤面の質感", "바둑판 재질"),
+    ("Stone texture", "Stone texture", "棋子材質", "棋子材质", "碁石の質感", "바둑돌 재질"),
+    ("KataGo executable", "KataGo executable", "KataGo 執行檔", "KataGo 可执行文件", "KataGo実行ファイル", "KataGo 실행 파일"),
+    ("Engine arguments", "Engine arguments", "引擎參數", "引擎参数", "エンジン引数", "엔진 인수"),
+    ("Preview", "Preview", "預聽", "试听", "試聴", "미리 듣기"),
+    ("Browse…", "Browse…", "瀏覽…", "浏览…", "参照…", "찾아보기…"),
+    ("OK", "OK", "確定", "确定", "決定", "확인"),
+    ("Cancel", "Cancel", "取消", "取消", "キャンセル", "취소"),
+    ("Dark", "Dark", "深色", "深色", "ダーク", "다크"),
+    ("Warm light", "Warm light", "暖白", "暖白", "ウォームライト", "웜 라이트"),
+    ("Black player", "Black player", "黑方棋手", "黑方棋手", "黒番棋士", "흑번 기사"),
+    ("White player", "White player", "白方棋手", "白方棋手", "白番棋士", "백번 기사"),
+    ("Black rank", "Black rank", "黑方段位", "黑方段位", "黒番段位", "흑번 단위"),
+    ("White rank", "White rank", "白方段位", "白方段位", "白番段位", "백번 단위"),
+    ("Date", "Date", "日期", "日期", "日付", "날짜"),
+    ("Event", "Event", "賽事", "赛事", "大会", "대회"),
+    ("Round", "Round", "輪次", "轮次", "ラウンド", "라운드"),
+    ("Result", "Result", "結果", "结果", "結果", "결과"),
+    ("Komi", "Komi", "貼目", "贴目", "コミ", "덤"),
+    ("Rules", "Rules", "棋規", "棋规", "ルール", "규칙"),
+    ("Time limit (seconds)", "Time limit (seconds)", "用時上限（秒）", "用时上限（秒）", "持ち時間（秒）", "제한 시간(초)"),
+    ("Overtime", "Overtime", "讀秒規則", "读秒规则", "秒読み", "초읽기"),
+    ("Game information", "Game information", "棋局資訊", "棋局信息", "対局情報", "대국 정보"),
+    ("Board size", "Board size", "棋盤路數", "棋盘路数", "盤の大きさ", "바둑판 크기"),
+    ("Unsaved game", "Unsaved game", "棋局尚未儲存", "棋局尚未保存", "未保存の対局", "저장하지 않은 대국"),
+    ("This game has unsaved changes.", "This game has unsaved changes.", "目前棋局有尚未儲存的變更。", "当前棋局有尚未保存的更改。", "この対局には未保存の変更があります。", "저장하지 않은 변경 사항이 있습니다."),
+    ("Save the changes before continuing?", "Save the changes before continuing?", "要先儲存變更再繼續嗎？", "要先保存更改再继续吗？", "続行する前に変更を保存しますか？", "계속하기 전에 변경 사항을 저장할까요?"),
+    ("Recover unsaved game?", "Recover unsaved game?", "復原未儲存的棋局？", "恢复未保存的棋局？", "未保存の対局を復元しますか？", "저장하지 않은 대국을 복구할까요?"),
+    ("A recent autosaved game was found. Restore it?", "A recent autosaved game was found. Restore it?", "找到最近的自動復原棋局，要還原嗎？", "找到最近的自动恢复棋局，要还原吗？", "最近の自動保存データが見つかりました。復元しますか？", "최근 자동 저장된 대국이 있습니다. 복구할까요?"),
+    ("Close panel", "Close panel", "關閉面板", "关闭面板", "パネルを閉じる", "패널 닫기"),
+    ("Expand panel", "Expand panel", "放大面板", "扩大面板", "パネルを拡大", "패널 확대"),
+    ("Restore panel", "Restore panel", "還原面板", "복원 패널", "パネルを元に戻す", "패널 복원"),
+    ("Move", "Move", "手", "手", "手", "수"),
+    ("Start", "Start", "開始", "开始", "開始", "시작"),
+    ("Black", "Black", "黑", "黑", "黒", "흑"),
+    ("White", "White", "白", "白", "白", "백"),
+    ("Pass", "Pass", "虛手", "虚手", "パス", "패스"),
+    ("Captured  Black: {black}   White: {white}", "Captured  Black: {black}   White: {white}", "提子數　黑：{black}　白：{white}", "提子数　黑：{black}　白：{white}", "アゲハマ　黒：{black}　白：{white}", "따낸 돌　흑: {black}　백: {white}"),
+    ("{color} to play", "{color} to play", "輪到{color}下棋", "轮到{color}下棋", "{color}の番です", "{color} 차례"),
+    ("Black", "Black", "黑方", "黑方", "黒番", "흑번"),
+    ("White", "White", "白方", "白方", "白番", "백번"),
+    ("Variation {number}", "Variation {number}", "變化 {number}", "变化 {number}", "変化 {number}", "변화 {number}"),
+    ("Main line", "Main line", "主線", "主线", "本譜", "본선"),
+    ("Select the end point", "Select the end point", "選擇終點", "选择终点", "終点を選択", "끝점을 선택하세요"),
+    ("Click {target} on the board to add markup", "Click {target} on the board to add markup", "在棋盤上點選{target}以新增標記", "在棋盘上点击{target}以添加标记", "盤面で{target}をクリックしてマークを追加", "바둑판에서 {target}을(를) 클릭해 표시를 추가하세요"),
+    ("one intersection", "one intersection", "一個交叉點", "一个交叉点", "1つの交点", "교차점 하나"),
+    ("two intersections", "two intersections", "兩個交叉點", "两个交叉点", "2つの交点", "교차점 두 개"),
+    ("Choose the KataGo executable in Preferences", "Choose the KataGo executable in Preferences", "請在偏好設定中選擇 KataGo 執行檔", "请在偏好设置中选择 KataGo 可执行文件", "設定でKataGo実行ファイルを選択してください", "환경 설정에서 KataGo 실행 파일을 선택하세요"),
+    ("Starting KataGo…", "Starting KataGo…", "正在啟動 KataGo…", "正在启动 KataGo…", "KataGoを起動中…", "KataGo 시작 중…"),
+    ("Stopping analysis…", "Stopping analysis…", "正在停止分析…", "正在停止分析…", "解析を停止中…", "분석 중지 중…"),
+    ("Analyzing current position…", "Analyzing current position…", "正在分析目前局面…", "正在分析当前局面…", "現在の局面を解析中…", "현재 국면 분석 중…"),
+    ("Engine stopped", "Engine stopped", "引擎已停止", "引擎已停止", "エンジンを停止しました", "엔진 중지됨"),
+    ("Engine ready", "Engine ready", "引擎就緒", "引擎就绪", "エンジン準備完了", "엔진 준비됨"),
+    ("Engine error; see status message", "Engine error; see status message", "引擎發生錯誤，請查看狀態訊息", "引擎发生错误，请查看状态消息", "エラーが発生しました。ステータスを確認してください", "엔진 오류입니다. 상태 메시지를 확인하세요"),
+    ("Start KataGo before reviewing the game", "Start KataGo before reviewing the game", "請先啟動 KataGo 再覆盤", "请先启动 KataGo 再复盘", "全局検討の前にKataGoを起動してください", "복기하기 전에 KataGo를 시작하세요"),
+    ("Reviewing {count} positions…", "Reviewing {count} positions…", "正在覆盤 {count} 個局面…", "正在复盘 {count} 个局面…", "{count}局面を検討中…", "{count}개 국면 복기 중…"),
+    ("Review stopped", "Review stopped", "覆盤已停止", "复盘已停止", "検討を停止しました", "복기 중지됨"),
+    ("Review complete · {positions} positions · {swings} major swings", "Review complete · {positions} positions · {swings} major swings", "覆盤完成 · {positions} 個局面 · {swings} 次重大波動", "复盘完成 · {positions} 个局面 · {swings} 次重大波动", "検討完了 · {positions}局面 · 大きな変動{swings}件", "복기 완료 · {positions}개 국면 · 주요 변동 {swings}회"),
+    ("Move {number} · {color}: estimated loss {loss:.1f}%", "Move {number} · {color}: estimated loss {loss:.1f}%", "第 {number} 手 · {color}：估計損失 {loss:.1f}%", "第 {number} 手 · {color}：估计损失 {loss:.1f}%", "{number}手目 · {color}：推定損失 {loss:.1f}%", "{number}수 · {color}: 추정 손실 {loss:.1f}%"),
+    ("No analysis available for this move", "No analysis available for this move", "此手尚無分析資料", "此手暂无分析数据", "この手の解析データはありません", "이 수의 분석 데이터가 없습니다"),
+    ("Analysis not available for this move", "Analysis not available for this move", "此局面尚無分析資料", "此局面暂无分析数据", "この局面の解析データはありません", "이 국면의 분석 데이터가 없습니다"),
+    ("Save game before adding it to the library", "Save game before adding it to the library", "請先儲存棋譜，再加入棋譜庫標籤", "请先保存棋谱，再添加棋谱库标签", "ライブラリにタグを付ける前に棋譜を保存してください", "라이브러리 태그를 추가하기 전에 기보를 저장하세요"),
+    ("Game tags", "Game tags", "棋譜標籤", "棋谱标签", "棋譜タグ", "기보 태그"),
+    ("Comma separated tags", "Comma separated tags", "以逗號分隔標籤", "用逗号分隔标签", "タグをカンマ区切りで入力", "쉼표로 구분해 태그 입력"),
+    ("Game ended after two passes", "Game ended after two passes", "雙方虛手，對局結束", "双方虚手，对局结束", "双方パスのため対局終了", "양쪽 패스로 대국 종료"),
+    ("Classic wood", "Classic wood", "經典木紋", "经典木纹", "クラシック木目", "클래식 나무결"),
+    ("Starfield", "Starfield", "星空", "星空", "星空", "별빛"),
+    ("Night sky", "Night sky", "夜空", "夜空", "夜空", "밤하늘"),
+    ("Traditional", "Traditional", "傳統", "传统", "伝統", "전통"),
+    ("Moonstone", "Moonstone", "月岩", "月岩", "ムーンストーン", "문스톤"),
+    ("Go stone · wooden board 1", "Go stone · wooden board 1", "圍棋落子 · 木盤 1", "围棋落子 · 木盘 1", "碁石の着手音 · 木盤 1", "바둑돌 착수음 · 나무판 1"),
+    ("Go stone · wooden board 2", "Go stone · wooden board 2", "圍棋落子 · 木盤 2", "围棋落子 · 木盘 2", "碁石の着手音 · 木盤 2", "바둑돌 착수음 · 나무판 2"),
+    ("Go stone · wooden board 3", "Go stone · wooden board 3", "圍棋落子 · 木盤 3", "围棋落子 · 木盘 3", "碁石の着手音 · 木盤 3", "바둑돌 착수음 · 나무판 3"),
+    ("Go stone · thin board 1", "Go stone · thin board 1", "圍棋落子 · 薄棋盤 1", "围棋落子 · 薄棋盘 1", "碁石の着手音 · 薄い盤 1", "바둑돌 착수음 · 얇은 판 1"),
+    ("Go stone · thin board 2", "Go stone · thin board 2", "圍棋落子 · 薄棋盤 2", "围棋落子 · 薄棋盘 2", "碁石の着手音 · 薄い盤 2", "바둑돌 착수음 · 얇은 판 2"),
+    ("AI Model Center", "AI Model Center", "AI 模型中心", "AI 模型中心", "AIモデルセンター", "AI 모델 센터"),
+    ("Refresh", "Refresh", "重新偵測", "重新检测", "再検出", "새로 고침"),
+    ("Search model name / architecture", "Search model name / architecture", "搜尋模型名稱／架構", "搜索模型名称／架构", "モデル名／アーキテクチャを検索", "모델 이름 / 아키텍처 검색"),
+    ("Model", "Model", "模型", "模型", "モデル", "모델"),
+    ("Elo rating", "Elo rating", "棋力評分", "棋力评分", "Eloレーティング", "Elo 레이팅"),
+    ("Upload date", "Upload date", "上傳日期", "上传日期", "アップロード日", "업로드 날짜"),
+    ("Memory advice", "Memory advice", "記憶體建議", "内存建议", "メモリの推奨", "메모리 권장"),
+    ("Loading the official KataGo model catalogue…", "Loading the official KataGo model catalogue…", "正在讀取 KataGo 官方模型目錄…", "正在读取 KataGo 官方模型目录…", "KataGo公式モデル一覧を読み込み中…", "KataGo 공식 모델 목록 불러오는 중…"),
+    ("Download location:", "Download location:", "下載位置：", "下载位置：", "ダウンロード先：", "다운로드 위치:"),
+    ("Choose folder…", "Choose folder…", "選擇資料夾…", "选择文件夹…", "フォルダーを選択…", "폴더 선택…"),
+    ("The model files are provided by katagotraining.org. This page does not download or install the KataGo executable.", "The model files are provided by katagotraining.org. This page does not download or install the KataGo executable.", "模型由 katagotraining.org 提供；此頁不會下載或安裝 KataGo 執行檔。", "模型由 katagotraining.org 提供；此页不会下载或安装 KataGo 可执行文件。", "モデルはkatagotraining.orgから提供されます。このページではKataGo本体は取得・インストールしません。", "모델은 katagotraining.org에서 제공합니다. 이 페이지는 KataGo 실행 파일을 다운로드하거나 설치하지 않습니다."),
+    ("Download and set as current model", "Download and set as current model", "下載並設為目前模型", "下载并设为当前模型", "ダウンロードして使用モデルに設定", "다운로드 후 현재 모델로 설정"),
+    ("Download engine and configure selected AI", "Download engine and configure selected AI", "下載引擎並完成 AI 設定", "下载引擎并完成 AI 设置", "エンジンを取得してAIを設定", "엔진 다운로드 및 AI 설정"),
+    ("Reinstall engine and configure selected AI", "Reinstall engine and configure selected AI", "重新安裝引擎並完成 AI 設定", "重新安装引擎并完成 AI 设置", "エンジンを再インストールしてAIを設定", "엔진 재설치 및 AI 설정"),
+    ("Use existing engine…", "Use existing engine…", "選擇現有引擎…", "选择现有引擎…", "既存のエンジンを選択…", "기존 엔진 선택…"),
+    ("Select KataGo executable", "Select KataGo executable", "選擇 KataGo 執行檔", "选择 KataGo 可执行文件", "KataGo実行ファイルを選択", "KataGo 실행 파일 선택"),
+    ("Engine arguments (advanced)", "Engine arguments (advanced)", "引擎參數（進階）", "引擎参数（高级）", "エンジン引数（詳細）", "엔진 인수 (고급)"),
+    ("Choose a model, then configure the engine and model together here.", "Choose a model, then configure the engine and model together here.", "選擇模型後，即可在此一併設定引擎與模型。", "选择模型后，即可在此一并设置引擎和模型。", "モデルを選び、ここでエンジンとモデルをまとめて設定できます。", "모델을 선택한 뒤 여기서 엔진과 모델을 함께 설정하세요."),
+    ("KataGo engine is not installed or configured.", "KataGo engine is not installed or configured.", "尚未安裝或設定 KataGo 引擎。", "尚未安装或设置 KataGo 引擎。", "KataGoエンジンが未インストールまたは未設定です。", "KataGo 엔진이 설치 또는 구성되지 않았습니다."),
+    ("Engine ready: {path}", "Engine ready: {path}", "引擎已就緒：{path}", "引擎已就绪：{path}", "エンジン準備完了：{path}", "엔진 준비 완료: {path}"),
+    ("Finding the latest compatible official KataGo engine…", "Finding the latest compatible official KataGo engine…", "正在尋找最新版相容的 KataGo 官方引擎…", "正在查找最新版兼容的 KataGo 官方引擎…", "最新の互換KataGo公式エンジンを検索中…", "호환되는 최신 공식 KataGo 엔진 찾는 중…"),
+    ("Automatic engine setup is currently available for 64-bit Linux and Windows.", "Automatic engine setup is currently available for 64-bit Linux and Windows.", "目前支援在 64 位元 Linux 與 Windows 自動設定引擎。", "目前支持在 64 位 Linux 和 Windows 自动设置引擎。", "現在、自動設定は64ビットLinuxとWindowsに対応しています。", "현재 64비트 Linux 및 Windows에서 자동 엔진 설정을 지원합니다."),
+    ("No compatible official OpenCL engine was found.", "No compatible official OpenCL engine was found.", "找不到相容的 KataGo 官方 OpenCL 引擎。", "找不到兼容的 KataGo 官方 OpenCL 引擎。", "互換性のあるKataGo公式OpenCLエンジンが見つかりません。", "호환되는 공식 OpenCL 엔진을 찾지 못했습니다."),
+    ("Engine setup failed: {error}", "Engine setup failed: {error}", "引擎設定失敗：{error}", "引擎设置失败：{error}", "エンジン設定に失敗しました：{error}", "엔진 설정 실패: {error}"),
+    ("Downloading the official KataGo engine…", "Downloading the official KataGo engine…", "正在下載 KataGo 官方引擎…", "正在下载 KataGo 官方引擎…", "KataGo公式エンジンをダウンロード中…", "공식 KataGo 엔진 다운로드 중…"),
+    ("Engine installed; downloading the selected model…", "Engine installed; downloading the selected model…", "引擎已安裝，正在下載所選模型…", "引擎已安装，正在下载所选模型…", "エンジンをインストールしました。選択したモデルをダウンロード中…", "엔진 설치 완료, 선택한 모델 다운로드 중…"),
+    ("Engine found; preparing the selected model…", "Engine found; preparing the selected model…", "已找到引擎，正在準備所選模型…", "已找到引擎，正在准备所选模型…", "エンジンを確認しました。選択モデルを準備中…", "엔진 확인됨, 선택한 모델 준비 중…"),
+    ("AI setup complete. Engine and model are ready; start analysis.", "AI setup complete. Engine and model are ready; start analysis.", "AI 設定完成，引擎與模型已就緒；可開始分析。", "AI 设置完成，引擎和模型已就绪；可以开始分析。", "AI設定が完了しました。エンジンとモデルの準備ができました。解析を開始してください。", "AI 설정 완료. 엔진과 모델이 준비되었습니다. 분석을 시작하세요."),
+    ("Model selected; start analysis to load it into KataGo.", "Model selected; start analysis to load it into KataGo.", "已選擇模型；開始分析即可載入 KataGo。", "已选择模型；开始分析即可加载到 KataGo。", "モデルを選択しました。解析を開始するとKataGoに読み込まれます。", "모델을 선택했습니다. 분석을 시작하면 KataGo에 로드됩니다."),
+    ("Configure KataGo in AI Model Center", "Configure KataGo in AI Model Center", "請在 AI 模型中心設定 KataGo", "请在 AI 模型中心设置 KataGo", "AIモデルセンターでKataGoを設定してください", "AI 모델 센터에서 KataGo를 설정하세요"),
+    ("Download only", "Download only", "只下載", "仅下载", "ダウンロードのみ", "다운로드만"),
+    ("Cancel download", "Cancel download", "取消下載", "取消下载", "ダウンロードをキャンセル", "다운로드 취소"),
+    ("Network models and licenses:", "Network models and licenses:", "模型授權與來源：", "模型许可与来源：", "モデルのライセンスと配布元：", "모델 라이선스 및 출처:"),
+    ("Memory guidance is an estimate based on currently available RAM / NVIDIA VRAM and network architecture. KataGo search cache also uses memory; actual needs vary with backend, batch size and cache settings.", "Memory guidance is an estimate based on currently available RAM / NVIDIA VRAM and network architecture. KataGo search cache also uses memory; actual needs vary with backend, batch size and cache settings.", "記憶體提示是依目前可用 RAM／NVIDIA VRAM 和網路架構計算的保守估計。KataGo 的搜尋快取也會佔用記憶體，實際需求會隨執行後端、批次大小及快取設定改變。", "内存提示依据当前可用 RAM / NVIDIA 显存和网络架构进行保守估算。KataGo 搜索缓存也会占用内存，实际需求随运行后端、批次大小和缓存设置变化。", "メモリの目安は現在の空きRAM／NVIDIA VRAMとネットワーク構造から算出した概算です。KataGoの探索キャッシュもメモリを使用し、実際の必要量はバックエンド、バッチサイズ、キャッシュ設定により変わります。", "메모리 안내는 현재 사용 가능한 RAM / NVIDIA VRAM과 네트워크 구조를 바탕으로 한 추정치입니다. KataGo 검색 캐시도 메모리를 사용하며 실제 요구량은 백엔드, 배치 크기, 캐시 설정에 따라 달라집니다."),
+    ("Local hardware", "Local hardware", "本機規格", "本机规格", "このPCの仕様", "현재 하드웨어"),
+    ("RAM {available:.1f} / {total:.1f} GiB available / total", "RAM {available:.1f} / {total:.1f} GiB available / total", "RAM {available:.1f} / {total:.1f} GiB 可用 / 總量", "RAM {available:.1f} / {total:.1f} GiB 可用 / 总量", "RAM {available:.1f} / {total:.1f} GiB 空き / 合計", "RAM {available:.1f} / {total:.1f} GiB 사용 가능 / 전체"),
+    ("NVIDIA {name} · VRAM {available:.1f} / {total:.1f} GiB available / total", "NVIDIA {name} · VRAM {available:.1f} / {total:.1f} GiB available / total", "NVIDIA {name} · VRAM {available:.1f} / {total:.1f} GiB 可用 / 總量", "NVIDIA {name} · VRAM {available:.1f} / {total:.1f} GiB 可用 / 总量", "NVIDIA {name} · VRAM {available:.1f} / {total:.1f} GiB 空き / 合計", "NVIDIA {name} · VRAM {available:.1f} / {total:.1f} GiB 사용 가능 / 전체"),
+    ("GPU memory unavailable; advice uses system RAM", "GPU memory unavailable; advice uses system RAM", "未偵測到可讀取的 GPU VRAM（建議先依系統 RAM 評估）", "未检测到可读取的 GPU 显存（建议先依系统 RAM 评估）", "GPU VRAMを取得できません（システムRAMを基準に推奨）", "GPU 메모리를 확인할 수 없습니다 (시스템 RAM 기준 권장)"),
+    ("Recommended model tier: {tier}", "Recommended model tier: {tier}", "建議模型級別：{tier}", "建议模型级别：{tier}", "推奨モデル規模：{tier}", "권장 모델 등급: {tier}"),
+    ("Light", "Light", "輕量", "轻量", "軽量", "경량"),
+    ("Balanced", "Balanced", "均衡", "均衡", "バランス", "균형"),
+    ("Strong", "Strong", "高棋力", "高棋力", "高性能", "고성능"),
+    ("Maximum", "Maximum", "最高棋力", "最高棋力", "最高性能", "최고 성능"),
+    ("Downloaded", "Downloaded", "已下載", "已下载", "ダウンロード済み", "다운로드됨"),
+    ("In use", "In use", "目前使用", "当前使用", "使用中", "사용 중"),
+    ("Recommended", "Recommended", "建議", "建议", "推奨", "권장"),
+    ("Available · {tier}", "Available · {tier}", "可用 · {tier}", "可用 · {tier}", "使用可能 · {tier}", "사용 가능 · {tier}"),
+    ("Resource intensive · {tier}", "Resource intensive · {tier}", "較吃資源 · {tier}", "较占资源 · {tier}", "高いリソースが必要 · {tier}", "리소스 사용량 높음 · {tier}"),
+    ("Meets current recommendation", "Meets current recommendation", "符合目前建議", "符合当前建议", "現在の推奨に適合", "현재 권장 사양에 적합"),
+    ("Above current recommendation; reduce search cache if needed", "Above current recommendation; reduce search cache if needed", "高於目前建議，必要時可降低搜尋快取", "高于当前建议，必要时可降低搜索缓存", "現在の推奨より高性能です。必要なら探索キャッシュを減らしてください", "현재 권장 사양보다 높습니다. 필요하면 검색 캐시를 줄이세요"),
+    ("RAM sufficient", "RAM sufficient", "RAM 充足", "RAM 充足", "RAMは十分", "RAM 충분"),
+    ("RAM may be insufficient", "RAM may be insufficient", "RAM 可能不足", "RAM 可能不足", "RAMが不足する可能性", "RAM이 부족할 수 있음"),
+    ("VRAM sufficient", "VRAM sufficient", "VRAM 充足", "VRAM 充足", "VRAMは十分", "VRAM 충분"),
+    ("VRAM may be insufficient", "VRAM may be insufficient", "VRAM 可能不足", "VRAM 可能不足", "VRAMが不足する可能性", "VRAM이 부족할 수 있음"),
+    ("Downloaded file: {path}", "Downloaded file: {path}", "本機檔案：{path}", "本机文件：{path}", "ローカルファイル：{path}", "로컬 파일: {path}"),
+    ("Current KataGo model", "Current KataGo model", "目前 KataGo 使用的模型", "当前 KataGo 使用的模型", "現在KataGoで使用中のモデル", "현재 KataGo 모델"),
+    ("Downloaded · set as current model", "Downloaded · set as current model", "已下載 · 設為目前模型", "已下载 · 设为当前模型", "ダウンロード済み · 使用モデルに設定", "다운로드됨 · 현재 모델로 설정"),
+    ("Choose a model first.", "Choose a model first.", "請先從清單選擇模型。", "请先从列表选择模型。", "先にモデルを選択してください。", "먼저 모델을 선택하세요."),
+    ("Fetching download size and checking disk space…", "Fetching download size and checking disk space…", "正在確認下載大小與磁碟空間…", "正在确认下载大小和磁盘空间…", "ダウンロードサイズと空き容量を確認中…", "다운로드 크기와 디스크 공간 확인 중…"),
+    ("Could not fetch file information: {error}", "Could not fetch file information: {error}", "無法取得檔案資訊：{error}", "无法获取文件信息：{error}", "ファイル情報を取得できません：{error}", "파일 정보를 가져올 수 없습니다: {error}"),
+    ("Not enough disk space; choose another location.", "Not enough disk space; choose another location.", "磁碟空間不足；請選擇空間更大的下載位置。", "磁盘空间不足；请选择空间更大的下载位置。", "空き容量が不足しています。別の保存先を選んでください。", "디스크 공간이 부족합니다. 다른 위치를 선택하세요."),
+    ("Could not create model file: {error}", "Could not create model file: {error}", "無法建立模型檔案：{error}", "无法创建模型文件：{error}", "モデルファイルを作成できません：{error}", "모델 파일을 만들 수 없습니다: {error}"),
+    ("Downloading from the official KataGo model host…", "Downloading from the official KataGo model host…", "開始從 KataGo 官方儲存站下載模型…", "开始从 KataGo 官方存储站下载模型…", "KataGo公式モデル配布元からダウンロード中…", "KataGo 공식 모델 저장소에서 다운로드 중…"),
+    ("Write failed: {error}", "Write failed: {error}", "寫入失敗：{error}", "写入失败：{error}", "書き込みに失敗しました：{error}", "쓰기 실패: {error}"),
+    ("Downloaded {received:.1f} / {total:.1f} MiB", "Downloaded {received:.1f} / {total:.1f} MiB", "已下載 {received:.1f} / {total:.1f} MiB", "已下载 {received:.1f} / {total:.1f} MiB", "ダウンロード済み {received:.1f} / {total:.1f} MiB", "다운로드됨 {received:.1f} / {total:.1f} MiB"),
+    ("Downloaded {received:.1f} MiB", "Downloaded {received:.1f} MiB", "已下載 {received:.1f} MiB", "已下载 {received:.1f} MiB", "ダウンロード済み {received:.1f} MiB", "다운로드됨 {received:.1f} MiB"),
+    ("Download incomplete; the temporary file was removed: {error}", "Download incomplete; the temporary file was removed: {error}", "下載未完成，暫存檔已清除：{error}", "下载未完成，临时文件已清除：{error}", "ダウンロード未完了。未完成ファイルを削除しました：{error}", "다운로드 미완료, 임시 파일 삭제됨: {error}"),
+    ("Download size mismatch ({received} / {expected} bytes); file was not installed.", "Download size mismatch ({received} / {expected} bytes); file was not installed.", "下載大小不符（{received} / {expected} bytes），檔案未安裝。", "下载大小不符（{received} / {expected} bytes），文件未安装。", "サイズが一致しません（{received} / {expected} bytes）。ファイルは保存されませんでした。", "다운로드 크기가 일치하지 않습니다 ({received} / {expected} bytes). 파일을 설치하지 않았습니다."),
+    ("Could not save the model file: {error}", "Could not save the model file: {error}", "模型檔無法完成保存：{error}", "模型文件无法完成保存：{error}", "モデルファイルを保存できません：{error}", "모델 파일을 저장할 수 없습니다: {error}"),
+    ("Model download complete: {path}", "Model download complete: {path}", "模型下載完成：{path}", "模型下载完成：{path}", "モデルのダウンロード完了：{path}", "모델 다운로드 완료: {path}"),
+    ("Cancelling and removing the incomplete model file…", "Cancelling and removing the incomplete model file…", "正在取消並清除未完成的模型檔…", "正在取消并清除未完成的模型文件…", "キャンセルして未完成ファイルを削除中…", "취소하고 미완료 모델 파일 삭제 중…"),
+    ("Model selected. Set the KataGo executable in Preferences, then start analysis.", "Model selected. Set the KataGo executable in Preferences, then start analysis.", "已設為目前模型。請在偏好設定選擇 KataGo 執行檔，再開始分析。", "已设为当前模型。请在偏好设置选择 KataGo 可执行文件，再开始分析。", "モデルを選択しました。設定でKataGo実行ファイルを選び、解析を開始してください。", "모델을 선택했습니다. 환경 설정에서 KataGo 실행 파일을 지정한 뒤 분석을 시작하세요."),
+    ("Official catalogue updated: {count} models.", "Official catalogue updated: {count} models.", "已更新官方模型目錄：{count} 個模型。", "已更新官方模型目录：{count} 个模型。", "公式モデル一覧を更新しました：{count}件。", "공식 모델 목록 업데이트됨: {count}개 모델."),
+    ("The official catalogue format changed; keeping the previous list.", "The official catalogue format changed; keeping the previous list.", "官方目錄格式有變更，保留上次載入的模型清單。", "官方目录格式有变化，保留上次加载的模型列表。", "公式一覧の形式が変更されたため、前回の一覧を表示します。", "공식 목록 형식이 변경되어 이전 목록을 유지합니다."),
+    ("Could not reach the catalogue; showing the last cached list.", "Could not reach the catalogue; showing the last cached list.", "無法連線更新目錄；目前顯示上次快取的模型清單。", "无法连接更新目录；当前显示上次缓存的模型列表。", "一覧を更新できません。前回のキャッシュを表示します。", "목록에 연결할 수 없습니다. 마지막 캐시 목록을 표시합니다."),
+    ("Model files are available from katagotraining.org; this page does not install the KataGo engine.", "Model files are available from katagotraining.org; this page does not install the KataGo engine.", "模型檔由 katagotraining.org 提供；此頁不會安裝 KataGo 引擎。", "模型文件由 katagotraining.org 提供；此页不会安装 KataGo 引擎。", "モデルはkatagotraining.orgから取得します。このページではKataGo本体をインストールしません。", "모델은 katagotraining.org에서 제공하며 이 페이지는 KataGo 엔진을 설치하지 않습니다."),
+    ("NIGHTYGO  /  PLAY", "NIGHTYGO  /  PLAY", "NIGHTYGO  /  對局", "NIGHTYGO  /  对局", "NIGHTYGO  /  対局", "NIGHTYGO  /  대국"),
+    ("{count} moves", "{count} moves", "{count} 手", "{count} 手", "{count}手", "{count}수"),
+    ("{rank}  {vertex} · {winrate} · {score} · {visits} {unit}", "{rank}  {vertex} · {winrate} · {score} · {visits} {unit}", "{rank}  {vertex} · {winrate} · {score} · {visits} {unit}", "{rank}  {vertex} · {winrate} · {score} · {visits} {unit}", "{rank}  {vertex} · {winrate} · {score} · {visits}{unit}", "{rank}  {vertex} · {winrate} · {score} · {visits}{unit}"),
+    ("Reviewing move {number} ({current}/{total})…", "Reviewing move {number} ({current}/{total})…", "正在覆盤第 {number} 手（{current}/{total}）…", "正在复盘第 {number} 手（{current}/{total}）…", "{number}手目を検討中（{current}/{total}）…", "{number}수 복기 중 ({current}/{total})…"),
+    ("Invalid engine arguments: {error}", "Invalid engine arguments: {error}", "引擎參數無效：{error}", "引擎参数无效：{error}", "エンジン引数が無効です：{error}", "엔진 인수가 잘못되었습니다: {error}"),
+    ("Choose the KataGo executable in Preferences", "Choose the KataGo executable in Preferences", "請在偏好設定中選擇 KataGo 執行檔", "请在偏好设置中选择 KataGo 可执行文件", "設定でKataGo実行ファイルを選択してください", "환경 설정에서 KataGo 실행 파일을 선택하세요"),
+    ("Starting KataGo…", "Starting KataGo…", "正在啟動 KataGo…", "正在启动 KataGo…", "KataGoを起動中…", "KataGo 시작 중…"),
+    ("Engine error; see status message", "Engine error; see status message", "引擎發生錯誤，請查看狀態訊息", "引擎发生错误，请查看状态消息", "エラーが発生しました。ステータスを確認してください", "엔진 오류입니다. 상태 메시지를 확인하세요"),
+    ("Starting engine…", "Starting engine…", "正在啟動引擎…", "正在启动引擎…", "エンジンを起動中…", "엔진 시작 중…"),
+    ("Start KataGo before reviewing the game", "Start KataGo before reviewing the game", "請先啟動 KataGo 再覆盤", "请先启动 KataGo 再复盘", "全局検討の前にKataGoを起動してください", "복기하기 전에 KataGo를 시작하세요"),
+    ("Model selected: {name}. Start analysis to load it into KataGo.", "Model selected: {name}. Start analysis to load it into KataGo.", "已選擇模型：{name}。開始分析即可載入至 KataGo。", "已选择模型：{name}。开始分析即可加载到 KataGo。", "モデルを選択しました：{name}。解析を開始するとKataGoに読み込まれます。", "모델 선택됨: {name}. 분석을 시작하면 KataGo에 로드됩니다."),
+    ("Configure KataGo in Settings → Preferences", "Configure KataGo in Settings → Preferences", "請至「設定 → 偏好設定」設定 KataGo", "请在“设置 → 偏好设置”中配置 KataGo", "「設定 → 環境設定」でKataGoを設定してください", "설정 → 환경 설정에서 KataGo를 구성하세요"),
+    ("No analysis available", "No analysis available", "尚無分析資料", "暂无分析数据", "解析データがありません", "분석 데이터 없음"),
+    ("Save", "Save", "儲存", "保存", "保存", "저장"),
+    ("Discard", "Discard", "捨棄", "放弃", "破棄", "버리기"),
+    ("Restore", "Restore", "還原", "恢复", "復元", "복원"),
+    ("Save", "Save", "儲存", "保存", "保存", "저장"),
+    ("Restore", "Restore", "還原", "恢复", "復元", "복원"),
+    ("Searching", "Searching", "搜尋中", "搜索中", "検索中", "검색 중"),
+    ("Official model catalogue", "Official model catalogue", "官方模型目錄", "官方模型目录", "公式モデル一覧", "공식 모델 목록"),
+    ("NightyGo · AI Model Center", "NightyGo · AI Model Center", "NightyGo · AI 模型中心", "NightyGo · AI 模型中心", "NightyGo · AIモデルセンター", "NightyGo · AI 모델 센터"),
+    ("Download again", "Download again", "重新下載", "重新下载", "再ダウンロード", "다시 다운로드"),
+    ("Unknown write error", "Unknown write error", "未知寫入錯誤", "未知写入错误", "不明な書き込みエラー", "알 수 없는 쓰기 오류"),
+    ("Move {number}", "Move {number}", "第 {number} 手", "第 {number} 手", "{number}手目", "{number}수"),
+    ("Run a game review to build the graph", "Run a game review to build the graph", "執行整盤覆盤以建立勝率圖", "运行整盘复盘以生成胜率图", "全局検討を実行すると勝率グラフが表示されます", "대국 전체를 복기하면 승률 그래프가 표시됩니다"),
+    ("Open SGF…", "Open SGF…", "開啟 SGF…", "打开 SGF…", "SGFを開く…", "SGF 열기…"),
+    ("SGF files (*.sgf *.SGF);;All files (*)", "SGF files (*.sgf *.SGF);;All files (*)", "SGF 檔案 (*.sgf *.SGF);;所有檔案 (*)", "SGF 文件 (*.sgf *.SGF);;所有文件 (*)", "SGFファイル (*.sgf *.SGF);;すべてのファイル (*)", "SGF 파일 (*.sgf *.SGF);;모든 파일 (*)"),
+    ("SGF files (*.sgf)", "SGF files (*.sgf)", "SGF 檔案 (*.sgf)", "SGF 文件 (*.sgf)", "SGFファイル (*.sgf)", "SGF 파일 (*.sgf)"),
+    ("Loaded the first game; all game trees are preserved when saving", "Loaded the first game; all game trees are preserved when saving", "已載入第一局；儲存時會保留所有棋譜樹", "已载入第一局；保存时会保留所有棋谱树", "最初の棋譜を読み込みました。保存時にすべての棋譜ツリーを保持します", "첫 번째 대국을 불러왔습니다. 저장 시 모든 기보 트리를 보존합니다"),
+    ("Saved {path}", "Saved {path}", "已儲存 {path}", "已保存 {path}", "保存しました：{path}", "저장됨: {path}"),
+    ("Save", "Save", "儲存", "保存", "保存", "저장"),
+    ("Discard", "Discard", "捨棄", "放弃", "破棄", "버리기"),
+    ("Restore", "Restore", "還原", "恢复", "復元", "복원"),
+    ("Recovered autosaved game; save it to keep the changes", "Recovered autosaved game; save it to keep the changes", "已復原自動儲存的棋局；請另存以保留變更", "已恢复自动保存的棋局；请另存以保留更改", "自動保存した対局を復元しました。変更を残すには保存してください", "자동 저장된 대국을 복구했습니다. 변경 사항을 보존하려면 저장하세요"),
+    ("Comment saved to the current SGF node", "Comment saved to the current SGF node", "註解已儲存至目前 SGF 節點", "注释已保存到当前 SGF 节点", "コメントを現在のSGFノードに保存しました", "현재 SGF 노드에 주석을 저장했습니다"),
+    ("Label text", "Label text", "標籤文字", "标签文字", "ラベル文字列", "라벨 텍스트"),
+    ("Visits", "Visits", "訪問數", "访问数", "訪問数", "방문 수"),
+    ("pts", "pts", "目", "目", "目", "집"),
+    ("Top move {vertex} · {winrate} · {score} · {visits} visits", "Top move {vertex} · {winrate} · {score} · {visits} visits", "首選著 {vertex} · {winrate} · {score} · {visits} 次訪問", "首选着 {vertex} · {winrate} · {score} · {visits} 次访问", "最善手 {vertex} · {winrate} · {score} · {visits}訪問", "최선의 수 {vertex} · {winrate} · {score} · {visits}회 방문"),
+    ("Position · Black {winrate} · {score} · {visits} visits", "Position · Black {winrate} · {score} · {visits} visits", "局面 · 黑方勝率 {winrate} · {score} · {visits} 次訪問", "局面 · 黑方胜率 {winrate} · {score} · {visits} 次访问", "局面 · 黒番勝率 {winrate} · {score} · {visits}訪問", "국면 · 흑 승률 {winrate} · {score} · {visits}회 방문"),
+    ("Analyzing current position…", "Analyzing current position…", "正在分析目前局面…", "正在分析当前局面…", "現在の局面を解析中…", "현재 국면 분석 중…"),
+    ("Starting engine…", "Starting engine…", "正在啟動引擎…", "正在启动引擎…", "エンジンを起動中…", "엔진 시작 중…"),
+    ("Engine stopped", "Engine stopped", "引擎已停止", "引擎已停止", "エンジンを停止しました", "엔진 중지됨"),
+    ("Top move", "Top move", "首選著", "首选着", "最善手", "최선의 수"),
+    ("No analysis available", "No analysis available", "尚無分析資料", "暂无分析数据", "解析データがありません", "분석 데이터 없음"),
+    ("Five real Go-stone recordings from two board types.", "Five real Go-stone recordings from two board types.", "五組來自兩種棋盤的真實圍棋落子錄音。", "五组来自两种棋盘的真实围棋落子录音。", "2種類の碁盤で録音した5種類の着手音です。", "두 종류의 바둑판에서 녹음한 실제 착수음 5개입니다."),
+)
+
+TRANSLATIONS = {row[0]: dict(zip(LANGUAGES, row[1:])) for row in _ROWS}
+_REVERSE = {
+    (language, translated): source
+    for source, values in TRANSLATIONS.items()
+    for language, translated in values.items()
+}
+
+
+def translate(source: str, language: str = "en", **values) -> str:
+    """Translate an application source string and interpolate named values."""
+    language = language if language in LANGUAGES else "en"
+    canonical = source if source in TRANSLATIONS else _REVERSE.get((language, source), source)
+    translated = TRANSLATIONS.get(canonical, {}).get(language, canonical)
+    try:
+        return translated.format(**values)
+    except (KeyError, ValueError):
+        return translated
+
+
+def retranslate_widget_tree(root, language: str) -> None:
+    """Translate known text on a widget tree, preserving each source string."""
+    widgets = [root, *root.findChildren(QtWidgets.QWidget)]
+    for widget in widgets:
+        for property_name in ("windowTitle", "text", "placeholderText", "toolTip", "accessibleName"):
+            getter = getattr(widget, property_name, None)
+            setter = getattr(widget, f"set{property_name[0].upper()}{property_name[1:]}", None)
+            if getter is None or setter is None:
+                continue
+            try:
+                current = getter()
+            except TypeError:
+                continue
+            if not isinstance(current, str) or not current:
+                continue
+            source_property = f"_nightygo_i18n_{property_name}"
+            source = widget.property(source_property)
+            if not source:
+                canonical = current if current in TRANSLATIONS else _REVERSE.get((language, current), current)
+                widget.setProperty(source_property, canonical)
+                source = canonical
+            setter(translate(str(source), language))
+        for action in widget.actions():
+            current = action.text()
+            source_property = "_nightygo_i18n_text"
+            source = action.property(source_property)
+            if not source:
+                canonical = current if current in TRANSLATIONS else _REVERSE.get((language, current), current)
+                action.setProperty(source_property, canonical)
+                source = canonical
+            action.setText(translate(str(source), language))

@@ -75,6 +75,7 @@ _ROWS = (
     ("Go stone placement sound", "Go stone placement sound", "圍棋落子音效", "围棋落子音效", "碁石の着手音", "바둑돌 착수 소리"),
     ("Board texture", "Board texture", "棋盤材質", "棋盘材质", "盤面の質感", "바둑판 재질"),
     ("Stone texture", "Stone texture", "棋子材質", "棋子材质", "碁石の質感", "바둑돌 재질"),
+    ("Stone preview", "Stone preview", "棋子預覽", "棋子预览", "碁石のプレビュー", "바둑돌 미리보기"),
     ("KataGo executable", "KataGo executable", "KataGo 執行檔", "KataGo 可执行文件", "KataGo実行ファイル", "KataGo 실행 파일"),
     ("Engine arguments", "Engine arguments", "引擎參數", "引擎参数", "エンジン引数", "엔진 인수"),
     ("Preview", "Preview", "預聽", "试听", "試聴", "미리 듣기"),

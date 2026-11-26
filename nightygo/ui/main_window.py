@@ -22,6 +22,7 @@ from nightygo.model_center import (
     ensure_gtp_config,
     prepare_gtp_engine,
 )
+from nightygo.preview import stone_pixmap
 from nightygo.sgf_session import SgfGameSession
 from nightygo.ui.analysis_graph import AnalysisGraph
 from nightygo.ui.board_widget import BoardWidget
@@ -1171,6 +1172,30 @@ class MainWindow(QtWidgets.QMainWindow):
         stone_selector.setCurrentIndex(stone_selector.findData(
             self._settings.value("stone_material", "Traditional")
         ))
+        stone_preview_row = QtWidgets.QHBoxLayout()
+        stone_preview_labels = []
+        for color, label_text in ((BLACK, self._t("Black")), (WHITE, self._t("White"))):
+            preview_label = QtWidgets.QLabel(label_text, dialog)
+            preview_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+            preview_label.setMinimumSize(74, 78)
+            preview_label.setFrameShape(QtWidgets.QFrame.Shape.StyledPanel)
+            stone_preview_row.addWidget(preview_label)
+            stone_preview_labels.append((preview_label, color))
+
+        def update_stone_previews(*_args) -> None:
+            material_name = str(stone_selector.currentData() or "Traditional")
+            material = STONE_MATERIALS[material_name]
+            for preview_label, color in stone_preview_labels:
+                pixmap = stone_pixmap(color, material).scaled(
+                    54,
+                    54,
+                    QtCore.Qt.AspectRatioMode.KeepAspectRatio,
+                    QtCore.Qt.TransformationMode.SmoothTransformation,
+                )
+                preview_label.setPixmap(pixmap)
+
+        stone_selector.currentIndexChanged.connect(update_stone_previews)
+        update_stone_previews()
         preset_selector = QtWidgets.QComboBox(dialog)
         for label in ("Custom", "Quiet wood", "Aurora night", "Moonlit study"):
             preset_selector.addItem(self._t(label), label)
@@ -1197,6 +1222,7 @@ class MainWindow(QtWidgets.QMainWindow):
         form.addRow(self._t("Go stone placement sound"), sound_row)
         form.addRow(self._t("Board texture"), board_selector)
         form.addRow(self._t("Stone texture"), stone_selector)
+        form.addRow(self._t("Stone preview"), stone_preview_row)
         form.addRow(self._t("Visual preset"), preset_selector)
         form.addRow(self._t("Material strength"), material_strength)
         form.addRow(self._t("Performance"), performance_overlay)

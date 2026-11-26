@@ -571,10 +571,10 @@ class BoardWidget(QtWidgets.QWidget):
         clip.addEllipse(target)
         painter.setClipPath(clip)
 
-        light = QtGui.QRadialGradient(
-            QtCore.QPointF(center.x() - diameter * 0.2, center.y() - diameter * 0.24),
-            diameter * 0.68,
-        )
+        # Keep the desktop highlight profile aligned with the web canvas renderer.
+        radius = diameter / 2
+        light_center = QtCore.QPointF(center.x() - radius * 0.4, center.y() - radius * 0.48)
+        light = QtGui.QRadialGradient(light_center, radius * 1.36)
         light.setColorAt(0, QtGui.QColor(255, 255, 255, 82))
         light.setColorAt(0.38, QtGui.QColor(255, 255, 255, 25))
         light.setColorAt(1, QtGui.QColor(255, 255, 255, 0))
@@ -583,8 +583,8 @@ class BoardWidget(QtWidgets.QWidget):
         painter.drawEllipse(target)
 
         shade = QtGui.QRadialGradient(
-            QtCore.QPointF(center.x() + diameter * 0.34, center.y() + diameter * 0.35),
-            diameter * 0.56,
+            QtCore.QPointF(center.x() + radius * 0.68, center.y() + radius * 0.7),
+            radius * 1.12,
         )
         shade.setColorAt(0, QtGui.QColor(0, 0, 0, 98))
         shade.setColorAt(0.52, QtGui.QColor(0, 0, 0, 30))
@@ -593,8 +593,8 @@ class BoardWidget(QtWidgets.QWidget):
         painter.drawEllipse(target)
 
         specular = QtGui.QRadialGradient(
-            QtCore.QPointF(center.x() - diameter * 0.24, center.y() - diameter * 0.28),
-            diameter * 0.18,
+            QtCore.QPointF(center.x() - radius * 0.48, center.y() - radius * 0.56),
+            radius * 0.36,
         )
         specular.setColorAt(0, QtGui.QColor(255, 255, 255, 190))
         specular.setColorAt(0.42, QtGui.QColor(255, 255, 255, 95))
@@ -602,10 +602,10 @@ class BoardWidget(QtWidgets.QWidget):
         painter.setBrush(specular)
         painter.drawEllipse(
             QtCore.QRectF(
-                center.x() - diameter * 0.4,
-                center.y() - diameter * 0.42,
-                diameter * 0.35,
-                diameter * 0.25,
+                center.x() - radius * 0.8,
+                center.y() - radius * 0.84,
+                radius * 0.7,
+                radius * 0.5,
             )
         )
 

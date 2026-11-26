@@ -262,7 +262,7 @@ body.light .turn-pill { color: #1c4d47; background: #edf7f3; }
   .hero-row::after { right: -145px; opacity: .7; }
   .app-shell { padding-top: 18px; }
   .board-card { padding: 16px 13px 13px; }
-  .board-wrap { max-width: min(100%, 78vw); padding: 8px; border-radius: 17px; }
+  .board-wrap { flex: none; height: auto; aspect-ratio: 1; max-width: min(100%, 78vw); padding: 8px; border-radius: 17px; }
   .panel { border-radius: 15px; }
 }
 @media (max-width: 460px) {
@@ -288,6 +288,11 @@ body.light .turn-pill { color: #1c4d47; background: #edf7f3; }
 .ai-file-button { display: inline-flex; align-items: center; cursor: pointer; }
 .ai-file-button input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
 .ai-config-status { margin: 9px 0 0; color: var(--muted); font-size: .88em; }
+.mail-storage-note { margin: 0; padding: 11px 12px; border: 1px solid rgba(138,240,211,.16); border-radius: 11px; color: var(--muted); background: rgba(8,14,24,.36); font-size: .82em; line-height: 1.55; }
+.mail-field { grid-template-columns: 115px minmax(0,1fr); }
+.mail-field input { min-width: 0; width: 100%; }
+.board-wrap { min-width: 0; overflow: hidden; }
+.board-wrap canvas { position: absolute; inset: 0; width: 100%; height: 100%; min-width: 0; min-height: 0; max-width: 100%; max-height: 100%; }
 
 /* Touch-first controls and narrow-screen layout. */
 @media (max-width: 790px) {
@@ -312,7 +317,7 @@ body.light .turn-pill { color: #1c4d47; background: #edf7f3; }
   .hero-actions { width: 100%; }
   .hero-actions > * { flex: 1 1 calc(50% - 8px); }
   .board-card { padding: 12px 9px 10px; }
-  .board-wrap { max-width: min(100%, 92vw); }
+  .board-wrap { width: min(100%, 92vw); max-width: min(100%, 92vw); height: auto; aspect-ratio: 1; }
   .panel-heading { gap: 10px; }
   .panel-heading h2 { font-size: 1.05rem; }
   .tree-toolbar { flex-wrap: wrap; }
@@ -328,4 +333,18 @@ body.light .turn-pill { color: #1c4d47; background: #edf7f3; }
   .stone-preview-row p { flex: 1 1 100%; margin: 0; }
   .ai-profile-actions > * { flex: 1 1 100%; justify-content: center; }
   .modal-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .analysis-panel { min-width: 0; overflow: hidden; }
+  .analysis-panel .panel-heading { flex-wrap: wrap; align-items: flex-start; }
+  .analysis-panel .panel-heading > div { min-width: 0; }
+  .analysis-panel .panel-heading .status-tag { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+  .analysis-panel .ai-empty { grid-template-columns: 42px minmax(0,1fr); min-width: 0; }
+  .analysis-panel .ai-empty strong, .analysis-panel .ai-empty p { min-width: 0; overflow-wrap: anywhere; }
+  .analysis-panel .ai-empty .ai-setup-checklist, .analysis-panel .ai-empty #check-gpu { grid-column: 1 / -1; width: 100%; min-width: 0; }
+  .ai-setup-item { align-items: flex-start; }
+  .ai-setup-item span, .ai-setup-item b { min-width: 0; overflow-wrap: anywhere; }
+  .mail-field { grid-template-columns: 1fr; }
+  .library-panel .panel-heading { min-width: 0; }
+  .library-actions { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 8px; }
+  .library-actions input { grid-column: 1 / -1; width: 100%; }
+  .library-actions .button { min-width: 0; padding-inline: 9px; font-size: .83em; white-space: nowrap; }
 }

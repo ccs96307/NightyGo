@@ -31,6 +31,7 @@ class BoardWidget(QtWidgets.QWidget):
         self._board_material = "wood"
         self._stone_material = "classic"
         self._animation_phase = 0.0
+        self._animation_started = time.monotonic()
         self._motion_level = "full"
         self._stone_transitions: dict[tuple[int, int], tuple[int, str]] = {}
         self._stone_transition_started = 0.0
@@ -114,9 +115,12 @@ class BoardWidget(QtWidgets.QWidget):
             self._theme_animation_timer.stop()
 
     def _advance_theme_animation(self) -> None:
-        self._animation_phase = (
-            self._animation_phase + (0.018 if self._motion_level == "subtle" else 0.055)
-        ) % (2 * math.pi)
+        # Derive the phase from a monotonic clock instead of wrapping an
+        # incremented phase. Wrapped coordinates made stars and meteors jump
+        # back to their starting positions at the end of each cycle.
+        elapsed = time.monotonic() - self._animation_started
+        speed = 0.55 if self._motion_level == "subtle" else 1.65
+        self._animation_phase = elapsed * speed
         side = min(self.width(), self.height())
         surface = QtCore.QRect(
             int((self.width() - side) / 2),
@@ -687,20 +691,23 @@ class BoardWidget(QtWidgets.QWidget):
             )
             painter.drawPath(path)
 
-        # A bright, short-lived meteor makes the animation immediately apparent.
-        progress = (phase / (2 * math.pi) * 4) % 1.0
-        if progress < 0.22:
-            x = surface.left() + side * (0.08 + progress * 3.5)
-            y = surface.top() + side * (0.2 + progress * 1.2)
+        # The meteor enters from outside the left edge, crosses the board, and
+        # exits the right edge. The long quiet gap makes each repeat invisible.
+        meteor_progress = ((time.monotonic() - self._animation_started) % 24.0) / 24.0
+        if meteor_progress < 0.22:
+            travel = meteor_progress / 0.22
+            x = surface.left() + side * (-0.12 + travel * 1.24)
+            y = surface.top() + side * (0.12 + travel * 0.64)
             meteor = QtCore.QPointF(x, y)
             tail = QtCore.QPointF(x - side * 0.11, y - side * 0.055)
-            painter.setPen(QtGui.QPen(QtGui.QColor(160, 203, 255, 75), max(2.0, side * 0.009)))
+            fade = min(1.0, travel / 0.12, (1.0 - travel) / 0.12)
+            painter.setPen(QtGui.QPen(QtGui.QColor(160, 203, 255, int(75 * fade)), max(2.0, side * 0.009)))
             painter.drawLine(tail, meteor)
-            painter.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255, 235), max(1.5, side * 0.004)))
+            painter.setPen(QtGui.QPen(QtGui.QColor(255, 255, 255, int(235 * fade)), max(1.5, side * 0.004)))
             painter.drawPoint(meteor)
 
         for index in range(42):
-            x = (index * 0.61803398875 + phase * 0.012) % 1.0
+            x = (index * 0.61803398875) % 1.0
             y = (index * 0.75487766625 + 0.17) % 1.0
             twinkle = (1 + math.sin(phase * 3.2 + index * 2.13)) / 2
             alpha = int(25 + twinkle * 220)

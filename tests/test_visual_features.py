@@ -1,6 +1,8 @@
 """Regression coverage for visual materials and review graph interaction."""
 
+import math
 import os
+import time
 import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -33,6 +35,17 @@ class VisualFeatureTests(unittest.TestCase):
         board.render(image)
         self.assertFalse(image.isNull())
         self.assertGreater(board.render_fps, -1)
+
+    def test_ambient_animation_phase_does_not_wrap_at_cycle_boundary(self):
+        board = BoardWidget()
+        board.set_motion_level("full")
+        board._animation_started = time.monotonic() - (2 * math.pi / 1.65) - 0.02
+        board._advance_theme_animation()
+        before = board._animation_phase
+        board._animation_started -= 20
+        board._advance_theme_animation()
+        self.assertGreater(before, 2 * math.pi)
+        self.assertGreater(board._animation_phase, before + 30)
 
     def test_analysis_graph_click_selects_nearest_move_on_timeline(self):
         graph = AnalysisGraph()

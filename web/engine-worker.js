@@ -36,9 +36,9 @@ async function analyze({moves,toPlay,komi,visits}) {
   moduleInstance._free(policy); moduleInstance._free(value); moduleInstance._free(owner);
   return out;
 }
-async function search({moves,toPlay,komi,visits}) {
+async function search({moves,toPlay,komi,visits,maxSearchTimeMs=15000}) {
   const count = allocateMoves(moves), best=moduleInstance._malloc(4), wr=moduleInstance._malloc(4), pvCap=12, pv=moduleInstance._malloc(pvCap*4), pvLen=moduleInstance._malloc(4), done=moduleInstance._malloc(4);
-  const ok=await moduleInstance.ccall('kgeSearch','number',Array(13).fill('number'),[moveLocPtr,moveColorPtr,count,toPlay,komi,visits,15000,best,wr,pv,pvCap,pvLen,done],{async:true});
+  const ok=await moduleInstance.ccall('kgeSearch','number',Array(13).fill('number'),[moveLocPtr,moveColorPtr,count,toPlay,komi,visits,maxSearchTimeMs,best,wr,pv,pvCap,pvLen,done],{async:true});
   if(!ok)throw new Error(moduleInstance.ccall('kgeError','string',[],[]));
   const result={best:moduleInstance.HEAP32[best>>2],winrate:moduleInstance.HEAPF32[wr>>2],visits:moduleInstance.HEAP32[done>>2],pv:Array.from(moduleInstance.HEAP32.subarray(pv>>2,(pv>>2)+moduleInstance.HEAP32[pvLen>>2]))};
   [best,wr,pv,pvLen,done].forEach(ptr=>moduleInstance._free(ptr));return result;

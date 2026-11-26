@@ -18,7 +18,17 @@ fi
 # Emscripten 7 requires em++ for the Dawn/WebGPU final link. Upstream currently
 # uses emcc; patch only this disposable checkout and keep the pinned source intact.
 sed -i 's/^emcc "${OBJS\[@\]}"/em++ "${OBJS[@]}"/' "$SOURCE_DIR/scripts/build-eval.sh"
+set +e
 EMSDK_DIR="$SDK" B5_NET= B20_NET= B18_NET= bash "$SOURCE_DIR/scripts/build-eval.sh"
+build_status=$?
+set -e
+if [[ "$build_status" -ne 0 && ( ! -s "$SOURCE_DIR/web/demo/kataeval.js" || ! -s "$SOURCE_DIR/web/demo/kataeval.wasm" ) ]]; then
+  echo "KataGo engine build failed with status $build_status and did not produce both output files." >&2
+  exit "$build_status"
+fi
+if [[ "$build_status" -ne 0 ]]; then
+  echo "KataGo engine outputs are present; upstream ended with status $build_status after optional demo model bundling." >&2
+fi
 mkdir -p "$ROOT/web/assets/engine"
 cp "$SOURCE_DIR/web/demo/kataeval.js" "$SOURCE_DIR/web/demo/kataeval.wasm" "$ROOT/web/assets/engine/"
 cp "$SOURCE_DIR/LICENSE" "$ROOT/web/assets/engine/UPSTREAM-LICENSE"

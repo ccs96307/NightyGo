@@ -37,24 +37,23 @@ async function evaluateMoves(moves,toPlay,komi) {
   moduleInstance._free(policy); moduleInstance._free(value); moduleInstance._free(owner);
   return out;
 }
-async function analyze({moves,toPlay,komi,candidateLocs=[]}) {
-  const out=await evaluateMoves(moves,toPlay,komi);
-  const evaluated=[];
-  for(const candidate of out.candidates.filter(candidate=>candidateLocs.includes(candidate.loc))){
-    const moveLoc=candidate.loc===boardSize*boardSize?-1:candidate.loc;
-    const reply=await evaluateMoves([...moves,{loc:moveLoc,color:toPlay}],toPlay===1?2:1,komi);
-    const opponentWin=reply.value[(toPlay===1?2:1)===2?0:1];
-    evaluated.push({...candidate,winrate:Math.max(0,Math.min(1,1-opponentWin))});
-  }
-  out.candidates=evaluated;
-  return out;
-}
-async function search({moves,toPlay,komi,visits,maxSearchTimeMs=15000}) {
+async function searchMoves({moves,toPlay,komi,visits,maxSearchTimeMs=15000}) {
   const count = allocateMoves(moves), best=moduleInstance._malloc(4), wr=moduleInstance._malloc(4), pvCap=12, pv=moduleInstance._malloc(pvCap*4), pvLen=moduleInstance._malloc(4), done=moduleInstance._malloc(4);
   const ok=await moduleInstance.ccall('kgeSearch','number',Array(13).fill('number'),[moveLocPtr,moveColorPtr,count,toPlay,komi,visits,maxSearchTimeMs,best,wr,pv,pvCap,pvLen,done],{async:true});
   if(!ok)throw new Error(moduleInstance.ccall('kgeError','string',[],[]));
   const result={best:moduleInstance.HEAP32[best>>2],winrate:moduleInstance.HEAPF32[wr>>2],visits:moduleInstance.HEAP32[done>>2],pv:Array.from(moduleInstance.HEAP32.subarray(pv>>2,(pv>>2)+moduleInstance.HEAP32[pvLen>>2]))};
   [best,wr,pv,pvLen,done].forEach(ptr=>moduleInstance._free(ptr));return result;
+}
+async function analyzeCandidates({moves,toPlay,komi,candidateLocs,visits=128,maxSearchTimeMs=15000},onUpdate=()=>{}){
+  const candidates=[],opponent=toPlay===1?2:1,total=Math.max(1,candidateLocs.length),perCandidateTime=Math.max(250,Math.floor(maxSearchTimeMs/total));
+  for(let index=0;index<candidateLocs.length;index++){
+    const loc=candidateLocs[index],moveLoc=loc===boardSize*boardSize?-1:loc;
+    onUpdate({type:'analysisProgress',current:index+1,total,loc});
+    const result=await searchMoves({moves:[...moves,{loc:moveLoc,color:toPlay}],toPlay:opponent,komi,visits,maxSearchTimeMs:perCandidateTime});
+    const candidate={loc,visits:result.visits,winrate:Math.max(0,Math.min(1,1-result.winrate)),pv:result.pv};
+    candidates.push(candidate);onUpdate({type:'analysisCandidate',candidate});
+  }
+  candidates.sort((a,b)=>b.winrate-a.winrate);return {candidates};
 }
 let requestQueue=Promise.resolve();
 self.onmessage=({data})=>{
@@ -62,8 +61,9 @@ self.onmessage=({data})=>{
     try{
       let result;
       if(data.type==='load')result=await load(data,stage=>self.postMessage({requestId:data.requestId,type:'progress',stage}));
-      else if(data.type==='analyze')result=await analyze(data);
-      else if(data.type==='search')result=await search(data);
+      else if(data.type==='analyze')result=await evaluateMoves(data.moves,data.toPlay,data.komi);
+      else if(data.type==='analyzeCandidates')result=await analyzeCandidates(data,message=>self.postMessage({requestId:data.requestId,...message}));
+      else if(data.type==='search')result=await searchMoves(data);
       else throw new Error(`Unknown worker request: ${data.type}`);
       self.postMessage({requestId:data.requestId,type:data.type==='load'?'loaded':data.type,result});
     }catch(error){self.postMessage({requestId:data.requestId,type:'error',message:error.message||String(error)});}

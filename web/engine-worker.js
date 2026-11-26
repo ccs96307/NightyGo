@@ -10,9 +10,10 @@ function allocateMoves(moves) {
   moves.forEach((m, i) => { moduleInstance.HEAP32[locs + i] = m.loc; moduleInstance.HEAP32[cols + i] = m.color; });
   return moves.length;
 }
-async function load({bytes, size}) {
+async function load({bytes, size}, onProgress = () => {}) {
   boardSize = size;
   moduleInstance = await createKata({locateFile: name => new URL(`assets/engine/${name}`, self.location.href).href});
+  onProgress('loadingNetwork');
   moduleInstance.FS.writeFile('/nightygo-model.bin.gz', new Uint8Array(bytes));
   const ok = await moduleInstance.ccall('kgeLoad','number',['string','number'],['/nightygo-model.bin.gz',boardSize],{async:true});
   if (!ok) throw new Error(moduleInstance.ccall('kgeError','string',[],[]));
@@ -48,7 +49,7 @@ self.onmessage=({data})=>{
   const run=async()=>{
     try{
       let result;
-      if(data.type==='load')result=await load(data);
+      if(data.type==='load')result=await load(data,stage=>self.postMessage({requestId:data.requestId,type:'progress',stage}));
       else if(data.type==='analyze')result=await analyze(data);
       else if(data.type==='search')result=await search(data);
       else throw new Error(`Unknown worker request: ${data.type}`);

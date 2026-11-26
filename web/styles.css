@@ -9,3 +9,36 @@ body.light .markup-bar select,body.light .markup-bar input{background:#f0f1f3;co
 .ai-actions{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px}.ai-actions .button{flex:1;justify-content:center}.candidate-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:3px 14px;padding-left:22px;color:var(--text);font-size:.75rem}.review-jump{border:0;background:transparent;color:#a9c4ff;font:inherit;cursor:pointer}.model-links{display:flex;flex-direction:column;gap:8px;padding:4px 0}.model-links a{color:#a9c4ff;font-size:.78rem}.model-links a:hover{text-decoration:underline}.form-field input[type=file]{font-size:.7rem;min-width:0}
 .library-tags{background:transparent;border:1px solid var(--line);border-radius:6px;padding:5px 7px;font-size:.68rem;color:var(--muted);width:100%}.library-tags:focus{outline:1px solid #829fe3;color:var(--text)}
 .library-tags{background:transparent;border:1px solid var(--line);border-radius:6px;padding:5px 7px;font-size:.68rem;color:var(--muted);width:100%}.library-tags:focus{outline:1px solid #829fe3;color:var(--text)}
+
+/* AI results grow naturally so the panel actions never overlap the next panel. */
+.side-column{grid-template-rows:minmax(300px,auto) minmax(300px,auto) minmax(210px,auto);align-content:start}
+.side-column>.panel{min-height:0}
+.analysis-panel{min-height:300px;overflow:visible}
+.analysis-results{max-height:min(36vh,360px);overflow:auto;overscroll-behavior:contain;scrollbar-color:#36445c transparent}
+.ai-actions{align-items:stretch}
+.ai-actions #analyze-position{min-width:150px}
+.ai-actions #model-center,.ai-actions #play-ai{flex:0 0 auto;min-height:44px}
+.analysis-panel>.full-width{flex:0 0 auto;margin-top:8px;min-height:44px}
+.panel-tools{display:flex;align-items:center;gap:7px;min-width:0}
+.panel-drag-handle{width:30px;height:30px;border:1px solid var(--line);border-radius:8px;background:#111927;color:var(--muted);font-size:1rem;line-height:1;cursor:grab;touch-action:none}
+.panel-drag-handle:active{cursor:grabbing}
+.side-column>.panel.is-dragging{opacity:.48}
+.side-column>.panel.drop-before{box-shadow:inset 0 3px 0 #9ab5f2, var(--shadow)}
+.side-column>.panel.drop-after{box-shadow:inset 0 -3px 0 #9ab5f2, var(--shadow)}
+.ai-progress{display:flex;align-items:center;gap:10px;padding:10px 11px;margin:8px 0;border:1px solid #51678f88;border-radius:10px;background:#17233a;color:#c8d7f2;font-size:.78rem}
+.loading-modal{width:min(460px,calc(100vw - 32px));}
+.loading-content{display:grid;grid-template-columns:42px minmax(0,1fr);align-items:start;gap:15px}
+.loading-content h2{font:700 1.15rem Manrope;margin:0 0 7px}
+.loading-content p{margin:0 0 8px;color:var(--muted);font-size:.82rem;line-height:1.55}
+.loading-content .loading-status{color:#b9d1ff}
+.loading-spinner{width:30px;height:30px;border:3px solid #7892c755;border-top-color:#a8c5ff;border-radius:50%;animation:nightygo-spin .8s linear infinite;flex:0 0 auto}
+.loading-content>.loading-spinner{width:38px;height:38px}
+.indeterminate-progress{appearance:none;width:100%;height:7px;margin-top:13px;border:0;border-radius:9px;background:#26334a;overflow:hidden}
+.indeterminate-progress::-webkit-progress-bar{background:#26334a;border-radius:9px}
+.indeterminate-progress::-webkit-progress-value{background:linear-gradient(90deg,#8debd4,#a7c5ff);border-radius:9px;animation:nightygo-progress 1.6s ease-in-out infinite}
+.indeterminate-progress::-moz-progress-bar{background:linear-gradient(90deg,#8debd4,#a7c5ff);border-radius:9px;animation:nightygo-progress 1.6s ease-in-out infinite}
+@keyframes nightygo-spin{to{transform:rotate(360deg)}}
+@keyframes nightygo-progress{0%{width:12%;margin-left:0}50%{width:65%;margin-left:18%}100%{width:12%;margin-left:88%}}
+@media(max-width:790px){.side-column{grid-template-rows:minmax(350px,auto) auto auto}.analysis-results{max-height:40vh}.candidate-list{grid-template-columns:1fr}.ai-actions #analyze-position{min-width:0;flex:1}.panel-drag-handle{display:none}}
+@media(prefers-reduced-motion:reduce){.loading-spinner,.indeterminate-progress::-webkit-progress-value,.indeterminate-progress::-moz-progress-bar{animation:none}}
+@media(max-width:790px){.panel-drag-handle{display:grid;place-items:center;width:44px;height:44px;font-size:1.15rem;touch-action:none}.panel-tools{gap:5px}.analysis-panel{min-height:0}}

@@ -46,6 +46,17 @@ jobs:
       - name: Smoke-test real KataGo model inference
         working-directory: vendor/katago-webgpu
         run: node web/test-eval.mjs cpp/tests/models/g170-b6c96-s175395328-d26788732.bin.gz
+      - name: Bundle downloadable KataGo networks for same-origin installation
+        run: |
+          mkdir -p web/assets/models
+          for model in \
+            kata1-tf2-b10c384-s2941M-d5872M.bin.gz \
+            kata1-tf3-b10c512-s3203M-d5937M.bin.gz \
+            kata1-tf3-b11c768-s12502M-d6619M.bin.gz; do
+            curl --fail --location --retry 3 \
+              "https://media.katagotraining.org/uploaded/networks/models/kata1/${model}" \
+              --output "web/assets/models/${model}"
+          done
       - name: Verify web client and SGF unit tests
         run: |
           node --check web/app.js

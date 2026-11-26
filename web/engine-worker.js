@@ -19,7 +19,7 @@ async function load({bytes, size}, onProgress = () => {}) {
   if (!ok) throw new Error(moduleInstance.ccall('kgeError','string',[],[]));
   return {version:moduleInstance.ccall('kgeModelVersion','number',[],[]),gpu:!!moduleInstance.ccall('kgeBackendIsGpu','number',[],[])};
 }
-async function analyze({moves,toPlay,komi,visits}) {
+async function evaluateMoves(moves,toPlay,komi) {
   const count = allocateMoves(moves), hw = boardSize * boardSize;
   const policy = moduleInstance._malloc((hw + 1) * 4), value = moduleInstance._malloc(5 * 4), owner = moduleInstance._malloc(hw * 4);
   const ok = await moduleInstance.ccall('kgeEvalSeq','number',Array(9).fill('number'),[moveLocPtr,moveColorPtr,count,toPlay,komi,0,policy,value,owner],{async:true});
@@ -35,6 +35,18 @@ async function analyze({moves,toPlay,komi,visits}) {
   const best = logits.map((v,loc)=>({loc,score:v})).filter(x=>x.loc===hw||Number.isFinite(x.score)).sort((a,b)=>b.score-a.score);
   const out = {value:vals,candidates:best,ownership};
   moduleInstance._free(policy); moduleInstance._free(value); moduleInstance._free(owner);
+  return out;
+}
+async function analyze({moves,toPlay,komi,candidateLocs=[]}) {
+  const out=await evaluateMoves(moves,toPlay,komi);
+  const evaluated=[];
+  for(const candidate of out.candidates.filter(candidate=>candidateLocs.includes(candidate.loc))){
+    const moveLoc=candidate.loc===boardSize*boardSize?-1:candidate.loc;
+    const reply=await evaluateMoves([...moves,{loc:moveLoc,color:toPlay}],toPlay===1?2:1,komi);
+    const opponentWin=reply.value[(toPlay===1?2:1)===2?0:1];
+    evaluated.push({...candidate,winrate:Math.max(0,Math.min(1,1-opponentWin))});
+  }
+  out.candidates=evaluated;
   return out;
 }
 async function search({moves,toPlay,komi,visits,maxSearchTimeMs=15000}) {

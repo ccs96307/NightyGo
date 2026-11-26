@@ -256,6 +256,8 @@ body.light .info-grid b { color: #263447; }
 body.light .library-card b { color: #253247; }
 body.light .comment-box textarea, body.light .markup-bar select, body.light .markup-bar input, body.light .library-actions input { color: #263447; background: #f3f5f7; }
 body.light .turn-pill { color: #1c4d47; background: #edf7f3; }
+body.light .candidate-row { background: #f5f6f8; color: #303a48; }
+body.light .candidate-rank { background: #dce5f3; color: #30415e; }
 
 @media (max-width: 790px) {
   .hero-row { padding: 19px 18px; border-radius: 18px; }

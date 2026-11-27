@@ -27,13 +27,22 @@ body.light .markup-bar select,body.light .markup-bar input{background:#f0f1f3;co
 .side-column>.panel.drop-after{box-shadow:inset 0 -3px 0 #9ab5f2, var(--shadow)}
 .ai-progress{display:flex;align-items:center;gap:10px;padding:10px 11px;margin:8px 0;border:1px solid #51678f88;border-radius:10px;background:#17233a;color:#c8d7f2;font-size:.78rem}
 .ai-progress[hidden]{display:none}
-.loading-modal{width:min(460px,calc(100vw - 32px));}
+.loading-modal{width:min(520px,calc(100vw - 32px));max-height:min(760px,calc(100dvh - 32px));overflow:auto;}
 .loading-content{display:grid;grid-template-columns:42px minmax(0,1fr);align-items:start;gap:15px}
 .loading-content h2{font:700 1.15rem Manrope;margin:0 0 7px}
 .loading-content p{margin:0 0 8px;color:var(--muted);font-size:.82rem;line-height:1.55}
 .loading-content .loading-status{color:#b9d1ff}
 .loading-spinner{width:30px;height:30px;border:3px solid #7892c755;border-top-color:#a8c5ff;border-radius:50%;animation:nightygo-spin .8s linear infinite;flex:0 0 auto}
 .loading-content>.loading-spinner{width:38px;height:38px}
+.model-progress-steps{display:grid;gap:7px;padding:11px 0 0;margin:8px 0 0;list-style:none;border-top:1px solid var(--line)}
+.model-progress-steps li{display:grid;grid-template-columns:23px minmax(0,1fr);align-items:center;gap:10px;min-height:28px;color:var(--muted);font-size:.8rem;transition:color .2s ease,transform .2s ease}
+.model-progress-steps li[data-state="active"]{color:var(--text);font-weight:700;transform:translateX(2px)}
+.model-progress-steps li[data-state="complete"]{color:#81d7ac}
+.step-indicator{position:relative;display:grid;place-items:center;width:21px;height:21px;border:1px solid #667693;border-radius:50%;color:#aebbd0;font-size:.7rem;font-weight:800;line-height:1}
+.model-progress-steps li[data-state="active"] .step-indicator{color:transparent;border-color:#8debd4}
+.model-progress-steps li[data-state="active"] .step-indicator::after{content:"";position:absolute;inset:3px;border:2px solid #7892c755;border-top-color:#8debd4;border-radius:50%;animation:nightygo-spin .8s linear infinite}
+.model-progress-steps li[data-state="complete"] .step-indicator{color:#09251d;border-color:#86dfb2;background:#86dfb2}
+.model-progress-detail{min-height:1.2em;margin-top:7px;color:#a9c5eb;font-size:.72rem;font-variant-numeric:tabular-nums;line-height:1.4}
 .candidate-heading{padding:12px 0 5px;color:var(--muted);font-size:.72rem;font-weight:700;letter-spacing:.02em}
 .candidate-list{display:flex;flex-direction:column;gap:5px;padding:0;margin:0;list-style:none}
 .candidate-row{display:grid;grid-template-columns:26px minmax(0,1fr) auto auto;align-items:center;gap:9px;padding:6px 9px;border:1px solid var(--line);border-radius:9px;background:#121b2a;font-size:.78rem}
@@ -54,6 +63,8 @@ body.light .markup-bar select,body.light .markup-bar input{background:#f0f1f3;co
 .indeterminate-progress.is-determinate::-webkit-progress-value,.indeterminate-progress.is-determinate::-moz-progress-bar{animation:none}
 @keyframes nightygo-spin{to{transform:rotate(360deg)}}
 @keyframes nightygo-progress{0%{width:12%;margin-left:0}50%{width:65%;margin-left:18%}100%{width:12%;margin-left:88%}}
+@media(max-width:520px){.loading-modal{padding:18px}.model-progress-steps{gap:5px}.model-progress-detail{font-size:.68rem}}
+@media(prefers-reduced-motion:reduce){.model-progress-steps li{transition:none}.model-progress-steps li[data-state="active"] .step-indicator::after{animation:none;border-color:#8debd4}}
 @media(max-width:790px){.side-column{grid-template-rows:minmax(350px,auto) auto auto}.analysis-results{max-height:40vh}.candidate-list{grid-template-columns:1fr}.ai-actions #analyze-position{min-width:0;flex:1}.panel-drag-handle{display:none}}
 @media(prefers-reduced-motion:reduce){.loading-spinner,.indeterminate-progress::-webkit-progress-value,.indeterminate-progress::-moz-progress-bar{animation:none}}
 @media(max-width:790px){.panel-drag-handle{display:grid;place-items:center;width:44px;height:44px;font-size:1.15rem;touch-action:none}.panel-tools{gap:5px}.analysis-panel{min-height:0}}

@@ -745,3 +745,9 @@ body.light .ai-profile-card, body.light .model-dialog .ai-profile-card { color: 
 body.mimi .ai-profile-card, body.mimi .model-dialog .ai-profile-card { color: #5e493e; background: #fff8f2; border-color: #efdfd4; }
 body.light .ai-profile-card .eyebrow, body.light .model-dialog .ai-profile-card .eyebrow { color: #63748d; }
 body.mimi .ai-profile-card .eyebrow, body.mimi .model-dialog .ai-profile-card .eyebrow { color: #9a6547; }
+.loading-modal.background-load .model-progress-steps,
+.loading-modal.background-load .model-progress-detail { display: none; }
+body.light .model-progress-steps li[data-state="active"], body.mimi .model-progress-steps li[data-state="active"] { color: #26364c; }
+body.light .model-progress-steps li[data-state="complete"] { color: #17664e; }
+body.mimi .model-progress-steps li[data-state="complete"] { color: #35714f; }
+body.light .model-progress-detail, body.mimi .model-progress-detail { color: #526680; }

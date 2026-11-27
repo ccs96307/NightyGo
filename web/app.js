@@ -120,12 +120,34 @@ let pendingLinePoint=null;
 let collectionTrees=[], root, current, board = [], captures = {[BLACK]:0,[WHITE]:0}, toPlay = BLACK, last = null, path = [], positionHistory=[], dirty=false, pointer=null, touchPreviewAnchor=null, animationFrame=0, library=readStore('ng.library',[]), pendingInstall, engineWorker=null, activeModelId='', engineBoardSize=0, engineReady=false, analyzedNode=null, analyzedBoard=null, ownershipMap=null, engineRequestId=0;
 let ruleOwnershipMap=null,ruleEstimate=null,ruleEstimateBoard=null,ruleEstimateNode=null,ruleEstimateKomi=null,deadStoneMap=null,showRuleEstimate=false,showDeadSuggestions=false,showAiOwnership=false;
 let animationTimer = 0, gpuState = 'unknown', gpuReason = 'checking', gpuError = '', modelAvailable = false;
-let modelBackendGpu=false,modelVersion=null,lastAnalysisScore=0,analysisOutputType='position',reviewResults=[],reviewMoveCount=0,reviewLine=[],aiProgressState=null,modelLoadingStage='initializingEngine',candidateAnalysis=[];
+let modelBackendGpu=false,modelVersion=null,lastAnalysisScore=0,analysisOutputType='position',reviewResults=[],reviewMoveCount=0,reviewLine=[],aiProgressState=null,modelLoadingStage='initializingEngine',modelLoadingValues={},modelProgressDetailKey='',modelProgressDetailValues={},candidateAnalysis=[];
 const skyStartedAt = performance.now() / 1000;
 const treePan = {x:0, y:0, width:320, height:240, root:null, dragging:false, moved:false, lastX:0, lastY:0};
-const modelDb = () => new Promise((resolve,reject)=>{const req=indexedDB.open('nightygo-models-v1',1);req.onupgradeneeded=()=>req.result.createObjectStore('models',{keyPath:'id'});req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error)});
+let modelProgressMode=null;
+const modelDb = () => new Promise((resolve,reject)=>{const req=indexedDB.open('nightygo-models-v1',2);req.onupgradeneeded=()=>{const db=req.result;if(!db.objectStoreNames.contains('models'))db.createObjectStore('models',{keyPath:'id'});if(!db.objectStoreNames.contains('modelChunks'))db.createObjectStore('modelChunks',{keyPath:['id','index']})};req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error)});
 async function putModel(model){const db=await modelDb();return new Promise((resolve,reject)=>{const tx=db.transaction('models','readwrite');tx.objectStore('models').put(model);tx.oncomplete=()=>resolve();tx.onerror=()=>reject(tx.error)})}
-async function getModel(id){const db=await modelDb();return new Promise((resolve,reject)=>{const req=db.transaction('models').objectStore('models').get(id);req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error)})}
+async function putModelChunked(model,bytes,onProgress){
+  const db=await modelDb(),chunkSize=8*1024*1024,totalChunks=Math.ceil(bytes.byteLength/chunkSize);
+  try{
+    for(let index=0;index<totalChunks;index++){
+      const offset=index*chunkSize,end=Math.min(bytes.byteLength,offset+chunkSize),chunk=bytes.slice(offset,end);
+      await new Promise((resolve,reject)=>{const tx=db.transaction('modelChunks','readwrite');tx.objectStore('modelChunks').put({id:model.id,index,offset,bytes:chunk});tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error||Error('Model storage transaction was aborted'))});
+      onProgress(end,bytes.byteLength,index+1,totalChunks);
+    }
+    await putModel({...model,chunks:totalChunks,storageFormat:'chunked'});
+  }catch(error){
+    try{await new Promise(resolve=>{const tx=db.transaction('modelChunks','readwrite'),store=tx.objectStore('modelChunks'),range=IDBKeyRange.bound([model.id,0],[model.id,Number.MAX_SAFE_INTEGER]),req=store.openCursor(range);req.onsuccess=()=>{const cursor=req.result;if(cursor){cursor.delete();cursor.continue()}};tx.oncomplete=resolve;tx.onerror=resolve})}catch{}
+    throw error;
+  }
+}
+async function getModel(id){
+  const db=await modelDb(),model=await new Promise((resolve,reject)=>{const req=db.transaction('models').objectStore('models').get(id);req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error)});
+  if(!model||!model.chunks)return model;
+  const bytes=new Uint8Array(model.size);let restored=0;
+  await new Promise((resolve,reject)=>{const tx=db.transaction('modelChunks','readonly'),range=IDBKeyRange.bound([id,0],[id,model.chunks-1]),req=tx.objectStore('modelChunks').openCursor(range);req.onsuccess=()=>{const cursor=req.result;if(!cursor){resolve();return}const part=new Uint8Array(cursor.value.bytes);bytes.set(part,cursor.value.offset);restored+=part.byteLength;cursor.continue()};req.onerror=()=>reject(req.error);tx.onerror=()=>reject(tx.error)});
+  if(restored!==model.size)throw Error(tr('modelStorageIncomplete'));
+  model.bytes=bytes.buffer;return model;
+}
 async function listModels(){const db=await modelDb();return new Promise((resolve,reject)=>{const models=[],req=db.transaction('models').objectStore('models').openCursor();req.onsuccess=()=>{const cursor=req.result;if(!cursor){resolve(models);return}const {id,name,size,added}=cursor.value;models.push({id,name,size,added});cursor.continue()};req.onerror=()=>reject(req.error)})}
 function engineRequest(type,payload={}){return new Promise((resolve,reject)=>{if(!engineWorker)engineWorker=new Worker(new URL('./engine-worker.js',import.meta.url));const worker=engineWorker,requestId=++engineRequestId;const cleanup=()=>{worker.removeEventListener('message',onMessage);worker.removeEventListener('error',onError);worker.removeEventListener('messageerror',onMessageError)};const onMessage=event=>{if(event.data.requestId!==requestId)return;if(event.data.type==='progress'){setModelLoadingStatus(event.data.stage);return}if(event.data.type==='analysisProgress'){setAiProgress('candidateSearchProgress',{current:event.data.current,total:event.data.total,move:candidateName(event.data.loc)});return}if(event.data.type==='analysisCandidate'){candidateAnalysis=candidateAnalysis.map(candidate=>candidate.loc===event.data.candidate.loc?event.data.candidate:candidate).sort((a,b)=>(b.winrate??-1)-(a.winrate??-1));updateCandidateVisitSummary();renderCandidates();drawBoard();return}cleanup();if(event.data.type==='error')reject(Error(event.data.message));else resolve(event.data.result)};const onError=event=>{cleanup();reject(Error(event.message||'KataGo worker failed to start'))};const onMessageError=()=>{cleanup();reject(Error('Could not read the KataGo worker response'))};worker.addEventListener('message',onMessage);worker.addEventListener('error',onError);worker.addEventListener('messageerror',onMessageError);try{worker.postMessage({type,requestId,...payload},payload.bytes?[payload.bytes]:[])}catch(error){cleanup();reject(error)}})}
 function movesForPath(nodes=path){const rootProps=nodes[0]?.props||{};if(rootProps.AW||rootProps.AE||nodes.slice(1).some(n=>n.props?.AB||n.props?.AW||n.props?.AE))throw Error(tr('unsupportedSetup'));const setup=expandSetup(rootProps.AB,boardSize());if(setup.length===1)throw Error(tr('unsupportedHandicap'));return [...setup.map(([x,y])=>({loc:y*boardSize()+x,color:BLACK})),...nodes.flatMap(node=>{const p=node.props||{};const color=p.B?BLACK:p.W?WHITE:null;if(!color)return[];const value=(p.B||p.W)[0];return [{loc:value===''?-1:(value.charCodeAt(1)-97)*boardSize()+value.charCodeAt(0)-97,color}]})]}
@@ -138,31 +160,43 @@ async function importAiConfig(file){if(!file)return;let config;try{config=parseA
 async function openModelCenter(){await refreshModels();$('#model-dialog').showModal()}
 async function importModel(file){if(!file)return;if(!file.name.endsWith('.bin.gz'))throw Error(tr('modelImportExtension'));const bytes=await file.arrayBuffer();if(bytes.byteLength<1024||new Uint8Array(bytes,0,2)[0]!==31||new Uint8Array(bytes,0,2)[1]!==139)throw Error(tr('invalidModelFile'));const id=crypto.randomUUID?.()||`${Date.now()}-${Math.random()}`;await putModel({id,name:file.name,size:bytes.byteLength,bytes,added:Date.now()});activeModelId=id;localStorage.setItem('ng.last-model-id',id);await refreshModels();toast(tr('modelSavedLocal'))}
 async function downloadOfficialModel(url,name){
-  const dialog=$('#model-loading-dialog'),title=$('#model-loading-title'),status=$('#model-loading-status'),progress=$('.indeterminate-progress');
-  title.textContent=tr('downloadingModel');status.textContent=tr('downloadStarting');progress.classList.remove('is-determinate');progress.removeAttribute('value');progress.removeAttribute('max');dialog.showModal();
+  const dialog=$('#model-loading-dialog');beginModelProgress('download');
   try{
     const response=await fetch(url);if(!response.ok)throw Error(`HTTP ${response.status}`);
     const total=Number(response.headers.get('content-length'))||0,reader=response.body?.getReader();let bytes;
+    setModelProgressStage('download',{status:'downloadConnected'});
     if(reader&&total){
-      bytes=new Uint8Array(total);let loaded=0;progress.max=total;progress.classList.add('is-determinate');
-      while(true){const {done,value}=await reader.read();if(done)break;if(loaded+value.length>total)throw Error(tr('modelDownloadLengthMismatch'));bytes.set(value,loaded);loaded+=value.length;progress.value=loaded;status.textContent=tr('downloadProgress',{loaded:(loaded/1048576).toFixed(0),total:(total/1048576).toFixed(0)})}
-      if(loaded!==total)bytes=bytes.slice(0,loaded);
+      bytes=new Uint8Array(total);let loaded=0;
+      while(true){const {done,value}=await reader.read();if(done)break;if(loaded+value.length>total)throw Error(tr('modelDownloadLengthMismatch'));bytes.set(value,loaded);loaded+=value.length;setModelProgressStage('download',{status:'downloadProgress',values:{loaded:(loaded/1048576).toFixed(1),total:(total/1048576).toFixed(1)},value:loaded,max:total})}
+      if(loaded!==total)throw Error(tr('modelDownloadLengthMismatch'));
     }else if(reader){
-      const chunks=[];let loaded=0;while(true){const {done,value}=await reader.read();if(done)break;chunks.push(value);loaded+=value.length;status.textContent=tr('downloadedSize',{loaded:(loaded/1048576).toFixed(0)})}bytes=new Uint8Array(loaded);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length}
+      const chunks=[];let loaded=0;while(true){const {done,value}=await reader.read();if(done)break;chunks.push(value);loaded+=value.length;setModelProgressStage('download',{status:'downloadedSize',values:{loaded:(loaded/1048576).toFixed(1)},detailKey:'downloadProgressIndeterminate'})}bytes=new Uint8Array(loaded);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length}
     }else bytes=new Uint8Array(await response.arrayBuffer());
     if(bytes.byteLength<1024||bytes[0]!==31||bytes[1]!==139)throw Error(tr('invalidModelFile'));
     const storage=await navigator.storage?.estimate?.();if(storage?.quota&&storage.quota-storage.usage<bytes.byteLength*1.05)throw Error(tr('modelStorageInsufficient'));
-    title.textContent=tr('savingModel');status.textContent=tr('savingModelLocally');
-    const id=crypto.randomUUID?.()||`${Date.now()}-${Math.random()}`;await putModel({id,name,size:bytes.byteLength,bytes:bytes.buffer,added:Date.now()});bytes=null;
+    const id=crypto.randomUUID?.()||`${Date.now()}-${Math.random()}`,model={id,name,size:bytes.byteLength,added:Date.now()};
+    setModelProgressStage('save',{status:'savingModelLocally',value:0,max:bytes.byteLength});
+    await putModelChunked(model,bytes,(saved,totalBytes,index,totalChunks)=>setModelProgressStage('save',{status:'savingModelLocally',values:{loaded:(saved/1048576).toFixed(1),total:(totalBytes/1048576).toFixed(1)},value:saved,max:totalBytes,detailKey:'storageProgress',detailValues:{loaded:(saved/1048576).toFixed(1),total:(totalBytes/1048576).toFixed(1),percent:Math.round(saved/totalBytes*100),chunk:index,totalChunks}}));
     localStorage.setItem('ng.last-model-id',id);if(!storedAiConfig())saveAiConfig(DEFAULT_AI_CONFIG);activeModelId=id;await refreshModels();
-    title.textContent=tr('loadingModel');status.textContent=tr('initializingEngine');if($('#model-dialog').open)$('#model-dialog').close();
-    const model=await getModel(id);if(engineWorker)engineWorker.terminate();engineWorker=null;engineReady=false;
-    const loaded=await engineRequest('load',{bytes:model.bytes,size:boardSize()});engineReady=true;engineBoardSize=boardSize();modelBackendGpu=loaded.gpu;modelVersion=loaded.version;
-    $('#analyze-position').disabled=false;$('#play-ai').disabled=false;$('#review-game').disabled=false;refreshGpuLanguage();$('#engine-message').textContent=tr(loaded.gpu?'modelLoadedGpu':'modelLoadedCpu',{version:loaded.version});refreshAiSetup();toast(tr('modelInstalled'));
-  }catch(error){toast(error.message.includes('Failed to fetch')?tr('downloadCorsError'):error.message);throw error}
-  finally{dialog.close();title.textContent=tr('loadingModel');status.textContent=tr('initializingEngine');progress.classList.remove('is-determinate');progress.removeAttribute('value');progress.removeAttribute('max')}
+    setModelProgressStage('load',{status:'initializingEngine'});if($('#model-dialog').open)$('#model-dialog').close();if(engineWorker)engineWorker.terminate();engineWorker=null;engineReady=false;
+    const loaded=await engineRequest('load',{bytes:bytes.buffer,size:boardSize()});engineReady=true;engineBoardSize=boardSize();modelBackendGpu=loaded.gpu;modelVersion=loaded.version;
+    $('#analyze-position').disabled=false;$('#play-ai').disabled=false;$('#review-game').disabled=false;refreshGpuLanguage();$('#engine-message').textContent=tr(loaded.gpu?'modelLoadedGpu':'modelLoadedCpu',{version:loaded.version});refreshAiSetup();finishModelProgress();await new Promise(resolve=>setTimeout(resolve,450));toast(tr('modelInstalled'));
+  }catch(error){toast(error.name==='QuotaExceededError'?tr('modelStorageInsufficient'):error.message.includes('Failed to fetch')?tr('downloadCorsError'):error.message);throw error}
+  finally{if(dialog.open)dialog.close();dialog.classList.remove('background-load');modelProgressMode=null;const progress=$('#model-loading-progress');progress.classList.remove('is-determinate');progress.removeAttribute('value');progress.removeAttribute('max')}
 }
-async function loadSelectedModel({automatic=false,id=$('#model-select').value}={}){if(!id)throw Error(tr('needModel'));if(!automatic&&!storedAiConfig())throw Error(tr('needProfile'));if(automatic&&!storedAiConfig())saveAiConfig(DEFAULT_AI_CONFIG);const model=await getModel(id);if(!model)throw Error(tr('modelNotFound'));if(engineWorker)engineWorker.terminate();engineWorker=null;engineReady=false;$('#analyze-position').disabled=true;$('#play-ai').disabled=true;$('#review-game').disabled=true;const dialog=$('#model-loading-dialog');setModelLoadingStatus('initializingEngine');dialog.classList.toggle('background-load',automatic);if(automatic)dialog.show();else dialog.showModal();try{const loaded=await engineRequest('load',{bytes:model.bytes,size:boardSize()});activeModelId=id;localStorage.setItem('ng.last-model-id',id);engineBoardSize=boardSize();engineReady=true;modelBackendGpu=loaded.gpu;modelVersion=loaded.version;analyzedNode=null;analyzedBoard=null;ownershipMap=null;showAiOwnership=false;updateOverlayToggles();refreshGpuLanguage();$('#engine-message').textContent=tr(loaded.gpu?'modelLoadedGpu':'modelLoadedCpu',{version:loaded.version});$('#analyze-position').disabled=false;$('#play-ai').disabled=false;$('#review-game').disabled=false;refreshAiSetup();$('#model-dialog').close();if(!automatic)toast(tr('modelLoaded'))}finally{dialog.close();dialog.classList.remove('background-load')}}
+async function loadSelectedModel({automatic=false,id=$('#model-select').value}={}){
+  if(!id)throw Error(tr('needModel'));
+  if(!automatic&&!storedAiConfig())throw Error(tr('needProfile'));
+  if(automatic&&!storedAiConfig())saveAiConfig(DEFAULT_AI_CONFIG);
+  beginModelProgress(automatic?'background':'foreground');
+  $('#analyze-position').disabled=true;$('#play-ai').disabled=true;$('#review-game').disabled=true;
+  try{
+    const model=await getModel(id);if(!model)throw Error(tr('modelNotFound'));
+    if(engineWorker)engineWorker.terminate();engineWorker=null;engineReady=false;
+    const loaded=await engineRequest('load',{bytes:model.bytes,size:boardSize()});
+    activeModelId=id;localStorage.setItem('ng.last-model-id',id);engineBoardSize=boardSize();engineReady=true;modelBackendGpu=loaded.gpu;modelVersion=loaded.version;analyzedNode=null;analyzedBoard=null;ownershipMap=null;showAiOwnership=false;updateOverlayToggles();refreshGpuLanguage();$('#engine-message').textContent=tr(loaded.gpu?'modelLoadedGpu':'modelLoadedCpu',{version:loaded.version});$('#analyze-position').disabled=false;$('#play-ai').disabled=false;$('#review-game').disabled=false;refreshAiSetup();$('#model-dialog').close();finishModelProgress();await new Promise(resolve=>setTimeout(resolve,350));if(!automatic)toast(tr('modelLoaded'));
+  }finally{const dialog=$('#model-loading-dialog');if(dialog.open)dialog.close();dialog.classList.remove('background-load');modelProgressMode=null}
+}
 function legalCandidates(candidates){return candidates.filter(c=>{if(c.loc===boardSize()*boardSize())return true;const x=c.loc%boardSize(),y=Math.floor(c.loc/boardSize());if(board[y]?.[x])return false;try{const ko=last&&!last.pass&&positionHistory.length>1?positionHistory.at(-2):null;applyMove(board,toPlay,x,y,true,ko);return true}catch{return false}}).slice(0,8)}
 function candidateName(loc){return loc===boardSize()*boardSize()?tr('pass'):`${'ABCDEFGHJKLMNOPQRST'[loc%boardSize()]}${boardSize()-(loc/boardSize()|0)}`}
 function updateCandidateVisitSummary(){const completed=candidateAnalysis.filter(candidate=>candidate.winrate!==null);const visits=completed.reduce((sum,candidate)=>sum+candidate.visits,0);$('#visits').textContent=completed.length?tr('candidateSearchSummary',{candidates:completed.length,visits}):candidateAnalysis.length?`0 / ${candidateAnalysis.length}`:tr('neuralInference')}
@@ -231,8 +265,30 @@ for(const [locale,values] of Object.entries({
 function setAiProgress(key,values={}){aiProgressState={key,values};$('#ai-progress-message').textContent=tr(key,values);$('#ai-progress').hidden=false}
 function hideAiProgress(){aiProgressState=null;$('#ai-progress').hidden=true}
 function renderReviewResults(){const list=$('#candidate-list');list.innerHTML=reviewResults.length?reviewResults.map(x=>`<li><button class="review-jump" data-move="${x.move}">${tr('reviewSwing',{move:x.move,swing:(x.swing*100).toFixed(1)})}</button></li>`).join(''):`<li>${tr('reviewNoSwing')}</li>`;document.querySelectorAll('.review-jump').forEach(button=>button.onclick=()=>navigateTo(reviewLine[Number(button.dataset.move)]))}
-function refreshAiLanguage(){if(aiProgressState)$('#ai-progress-message').textContent=tr(aiProgressState.key,aiProgressState.values);if($('#model-loading-dialog').open)$('#model-loading-status').textContent=tr(modelLoadingStage);if(engineReady)$('#engine-message').textContent=tr(modelBackendGpu?'modelLoadedGpu':'modelLoadedCpu',{version:modelVersion});if(!$('#analysis-results').hidden){if(analysisOutputType==='position'){updateCandidateVisitSummary();$('#score-lead').textContent=tr('scoreLeadWhite',{score:`${lastAnalysisScore>=0?'+':''}${lastAnalysisScore.toFixed(1)}`});renderCandidates()}else{renderReviewResults();$('#engine-message').textContent=tr('reviewComplete',{moves:reviewMoveCount})}}}
-function setModelLoadingStatus(key){modelLoadingStage=key;$('#model-loading-status').textContent=tr(key)}
+for(const [locale,values] of Object.entries({
+  'zh-Hant':{downloadProgressSteps:'模型安裝進度',modelProgressBar:'模型安裝進度',downloadStepConnect:'連線模型來源',downloadStepTransfer:'下載模型',downloadStepStorage:'寫入瀏覽器儲存空間',downloadStepLoad:'載入 AI 引擎',downloadConnected:'已連線，開始下載模型…',downloadProgressIndeterminate:'伺服器未提供檔案大小；正在持續下載',storageProgress:'已寫入 {loaded}/{total} MB · {percent}% · 批次 {chunk}/{totalChunks}',modelStorageIncomplete:'本機模型資料不完整，請重新下載。'},
+  'zh-Hans':{downloadProgressSteps:'模型安装进度',modelProgressBar:'模型安装进度',downloadStepConnect:'连接模型来源',downloadStepTransfer:'下载模型',downloadStepStorage:'写入浏览器存储空间',downloadStepLoad:'加载 AI 引擎',downloadConnected:'已连接，开始下载模型…',downloadProgressIndeterminate:'服务器未提供文件大小；正在持续下载',storageProgress:'已写入 {loaded}/{total} MB · {percent}% · 批次 {chunk}/{totalChunks}',modelStorageIncomplete:'本地模型数据不完整，请重新下载。'},
+  en:{downloadProgressSteps:'Model installation progress',modelProgressBar:'Model installation progress',downloadStepConnect:'Connect to model host',downloadStepTransfer:'Download model',downloadStepStorage:'Write browser storage',downloadStepLoad:'Load AI engine',downloadConnected:'Connected. Starting model download…',downloadProgressIndeterminate:'The server did not provide a file size; download is continuing.',storageProgress:'Saved {loaded}/{total} MB · {percent}% · batch {chunk}/{totalChunks}',modelStorageIncomplete:'The local model data is incomplete. Please download it again.'},
+  ja:{downloadProgressSteps:'モデルのインストール状況',modelProgressBar:'モデルのインストール状況',downloadStepConnect:'モデル配信元に接続',downloadStepTransfer:'モデルをダウンロード',downloadStepStorage:'ブラウザーに保存',downloadStepLoad:'AIエンジンを読み込み',downloadConnected:'接続しました。モデルをダウンロードしています…',downloadProgressIndeterminate:'ファイルサイズが不明なため、ダウンロード中の表示を続けます。',storageProgress:'保存済み {loaded}/{total} MB · {percent}% · {chunk}/{totalChunks} バッチ',modelStorageIncomplete:'ローカルモデルデータが不完全です。もう一度ダウンロードしてください。'},
+  ko:{downloadProgressSteps:'모델 설치 진행 상황',modelProgressBar:'모델 설치 진행 상황',downloadStepConnect:'모델 서버 연결',downloadStepTransfer:'모델 다운로드',downloadStepStorage:'브라우저 저장 공간에 쓰기',downloadStepLoad:'AI 엔진 불러오기',downloadConnected:'연결되었습니다. 모델을 다운로드합니다…',downloadProgressIndeterminate:'파일 크기를 알 수 없어 다운로드 진행 애니메이션을 표시합니다.',storageProgress:'저장됨 {loaded}/{total} MB · {percent}% · {chunk}/{totalChunks} 묶음',modelStorageIncomplete:'로컬 모델 데이터가 불완전합니다. 다시 다운로드해 주세요.'}
+}))Object.assign(I18N[locale],values);
+function refreshAiLanguage(){if(aiProgressState)$('#ai-progress-message').textContent=tr(aiProgressState.key,aiProgressState.values);if($('#model-loading-dialog').open){$('#model-loading-status').textContent=tr(modelLoadingStage,modelLoadingValues);$('#model-loading-title').textContent=tr(modelProgressMode==='download'?'downloadingModel':'loadingModel');$('#model-progress-detail').textContent=modelProgressDetailKey?tr(modelProgressDetailKey,modelProgressDetailValues):''}if(engineReady)$('#engine-message').textContent=tr(modelBackendGpu?'modelLoadedGpu':'modelLoadedCpu',{version:modelVersion});if(!$('#analysis-results').hidden){if(analysisOutputType==='position'){updateCandidateVisitSummary();$('#score-lead').textContent=tr('scoreLeadWhite',{score:`${lastAnalysisScore>=0?'+':''}${lastAnalysisScore.toFixed(1)}`});renderCandidates()}else{renderReviewResults();$('#engine-message').textContent=tr('reviewComplete',{moves:reviewMoveCount})}}}
+function updateModelStepper(active,completeThrough=({connect:-1,download:0,save:1,load:2,complete:3}[active]??-1)){
+  const steps=document.querySelectorAll('#model-progress-steps li');
+  steps.forEach((step,index)=>{const state=index<=completeThrough?'complete':step.dataset.step===active?'active':'pending';step.dataset.state=state;if(state==='active')step.setAttribute('aria-current','step');else step.removeAttribute('aria-current');step.querySelector('.step-indicator').textContent=state==='complete'?'✓':String(index+1)});
+}
+function setModelProgressStage(stage,{status=stage,values={},value=null,max=null,detailKey='',detailValues={}}={}){
+  modelLoadingStage=status;modelLoadingValues=values;modelProgressDetailKey=detailKey;modelProgressDetailValues=detailValues;$('#model-loading-status').textContent=tr(status,values);$('#model-progress-detail').textContent=detailKey?tr(detailKey,detailValues):'';updateModelStepper(stage);
+  const progress=$('#model-loading-progress');progress.classList.remove('is-determinate');
+  if(Number.isFinite(value)&&Number.isFinite(max)&&max>0){progress.max=max;progress.value=value;progress.classList.add('is-determinate');progress.setAttribute('aria-valuenow',String(Math.round(value/max*100)));progress.setAttribute('aria-valuetext',`${Math.round(value/max*100)}%`)}else{progress.removeAttribute('value');progress.removeAttribute('max');progress.removeAttribute('aria-valuenow');progress.removeAttribute('aria-valuetext')}
+}
+function beginModelProgress(mode='download'){
+  modelProgressMode=mode;const dialog=$('#model-loading-dialog');$('#model-loading-title').textContent=tr(mode==='download'?'downloadingModel':'loadingModel');
+  if(mode==='download'){setModelProgressStage('connect',{status:'downloadStarting'})}else{setModelProgressStage('load',{status:'initializingEngine'})}
+  dialog.classList.toggle('background-load',mode==='background');if(mode==='background')dialog.show();else dialog.showModal();
+}
+function finishModelProgress(){setModelProgressStage('complete',{status:'modelInstalled',value:1,max:1});}
+function setModelLoadingStatus(key){modelLoadingStage=key;modelLoadingValues={};$('#model-loading-status').textContent=tr(key);if(modelProgressMode==='download'||modelProgressMode==='foreground'||modelProgressMode==='background')updateModelStepper('load')}
 function tr(key,values={}){let value=I18N[language]?.[key]||I18N.en[key]||key;for(const [name,replacement] of Object.entries(values))value=value.replaceAll(`{${name}}`,String(replacement));return value}
 function readStore(key,fallback){try{return JSON.parse(localStorage.getItem(key)) ?? fallback}catch{return fallback}}
 function writeStore(key,value){try{localStorage.setItem(key,JSON.stringify(value))}catch{toast(tr('storageLimit'))}}

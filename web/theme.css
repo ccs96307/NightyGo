@@ -755,3 +755,9 @@ body.light .ai-actions #model-center.configure-button { color: #355276; backgrou
 body.light .ai-actions #model-center.configure-button:hover { color: #263c5b; border-color: #7f9fc9; background: linear-gradient(145deg,#fff,#e8f0fc); }
 body.mimi .ai-actions #model-center.configure-button { color: #815239; background: linear-gradient(145deg,#fffaf5,#ffecdd); border-color: #e7b993; box-shadow: inset 0 1px #fff,0 3px 9px rgba(158,94,51,.09); }
 body.mimi .ai-actions #model-center.configure-button:hover { color: #68422f; border-color: #d99062; background: linear-gradient(145deg,#fffdf9,#ffe5d2); }
+body.light .analysis-board-callout { color: #26364c; border-color: #91a9c9; background: rgba(255,255,255,.96); box-shadow: 0 8px 28px rgba(38,54,76,.2); }
+body.mimi .analysis-board-callout { color: #563a2b; border-color: #dba27f; background: rgba(255,250,245,.97); box-shadow: 0 8px 28px rgba(90,58,37,.2); }
+body.light .candidate-winrate { color: #08745b; }
+body.mimi .candidate-winrate { color: #397855; }
+body.light .candidate-row:hover, body.light .candidate-row.selected { background: #eaf1fb; border-color: #8ea8ce; }
+body.mimi .candidate-row:hover, body.mimi .candidate-row.selected { background: #fff0e5; border-color: #dfaa82; }

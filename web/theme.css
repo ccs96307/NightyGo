@@ -590,62 +590,76 @@ body.light .model-dialog-actions { background: rgba(247, 249, 252, .98); }
   .loading-modal.background-load { inset: auto 12px max(12px, env(safe-area-inset-bottom)) 12px; width: auto; }
 }
 
-/* Mimi Mode: a warm cream and marmalade palette with a cozy cat mood. */
+/* Mimi Mode: bright cream surfaces, orange accents, and a soft cat-inspired warmth. */
 body.mimi {
-  --bg: #211711;
-  --surface: rgba(53, 37, 29, .94);
-  --surface-2: #3a2920;
-  --line: rgba(255, 225, 196, .17);
-  --text: #fff4e7;
-  --muted: #d8bda5;
-  --accent: #ffc184;
-  --accent-strong: #f6a45e;
-  --gold: #f4c77f;
-  --violet: #e6a4ba;
-  --coral: #fa9874;
+  --bg: #fff8f2;
+  --surface: rgba(255, 255, 255, .96);
+  --surface-2: #fff0e4;
+  --line: rgba(132, 78, 48, .16);
+  --text: #40302a;
+  --muted: #79675e;
+  --accent: #df7138;
+  --accent-strong: #c65d2b;
+  --gold: #d88b45;
+  --violet: #bd8294;
+  --coral: #dd7558;
   color: var(--text);
-  background: radial-gradient(ellipse at 78% 2%, rgba(204, 111, 57, .24), transparent 38%), radial-gradient(ellipse at 8% 64%, rgba(189, 117, 75, .13), transparent 36%), #211711;
+  background: radial-gradient(ellipse at 82% 0%, rgba(255, 192, 147, .34), transparent 39%), radial-gradient(ellipse at 8% 62%, rgba(255, 225, 204, .42), transparent 36%), #fff8f2;
 }
-body.mimi::before { opacity: .08; filter: sepia(.65); }
-body.mimi .ambient-one { background: #ed9455; }
-body.mimi .ambient-two { background: #f6d6ae; }
-body.mimi .topbar { background: rgba(35, 24, 18, .86); border-color: rgba(255,225,196,.16); }
-body.mimi .brand-mark { border-color: rgba(255,193,132,.62); background: linear-gradient(145deg,#70462f,#37251c 72%); box-shadow: 0 0 26px rgba(255,170,104,.15), inset 0 1px 0 #fff5; }
-body.mimi .brand small, body.mimi .connection, body.mimi .game-meta, body.mimi .board-footer { color: #d8bda5; }
+body.mimi::before { opacity: .07; filter: sepia(.35); }
+body.mimi .ambient-one { background: #ff9b5c; opacity: .15; }
+body.mimi .ambient-two { background: #ffd4b3; opacity: .2; }
+body.mimi .topbar { background: rgba(255, 251, 247, .94); border-color: #efdfd4; box-shadow: 0 5px 20px rgba(135,76,43,.06); }
+body.mimi .brand, body.mimi .top-actions select, body.mimi .icon-button { color: #49342c; }
+body.mimi .brand-mark { border-color: #f0b28d; color: #fffaf5; background: linear-gradient(145deg,#f7a16c,#e47c49 72%); box-shadow: 0 5px 20px rgba(227,124,73,.2), inset 0 1px 0 #fff9; }
+body.mimi .brand small, body.mimi .connection, body.mimi .game-meta, body.mimi .board-footer { color: #79675e; }
+body.mimi .hero-row { border: 1px solid #f1ddd0; background: linear-gradient(110deg, rgba(255,255,255,.97), rgba(255,238,224,.97)); box-shadow: 0 16px 40px rgba(126,76,51,.08); }
+body.mimi .hero-row h1 { background-image: linear-gradient(100deg, #49342c, #d56a38 72%, #bd8294); }
+body.mimi .hero-row p { color: #79675e; }
+body.mimi .hero-row::after { opacity: .3; filter: sepia(.4) saturate(.8); }
 body.mimi .surface, body.mimi .panel, body.mimi .board-card {
   color: var(--text);
-  border-color: rgba(255, 225, 196, .16);
-  background: linear-gradient(145deg, rgba(62, 43, 32, .96), rgba(38, 27, 21, .97));
-  box-shadow: 0 18px 48px rgba(13, 8, 5, .25);
+  border-color: #efdfd4;
+  background: linear-gradient(145deg, rgba(255,255,255,.98), rgba(255,249,244,.98));
+  box-shadow: 0 18px 48px rgba(126,76,51,.09);
 }
 body.mimi .tree-scroll, body.mimi .ai-setup-checklist, body.mimi .comment-box textarea,
 body.mimi .markup-bar, body.mimi .turn-pill, body.mimi .candidate-row,
 body.mimi .ai-profile-card, body.mimi .mail-storage-note {
-  color: var(--text);
-  border-color: rgba(255, 225, 196, .15);
-  background: rgba(29, 20, 16, .58);
+  color: #49372f;
+  border-color: #f0dfd4;
+  background: #fff8f3;
 }
-body.mimi .tree-link { stroke: #a47d61; }
-body.mimi .tree-link.active { stroke: #ffc184; }
-body.mimi .tree-node.current circle { stroke: #ffb276; }
+body.mimi .tree-link { stroke: #c9a18b; }
+body.mimi .tree-link.active { stroke: #e9854e; }
+body.mimi .tree-node.current circle { stroke: #e9854e; }
 body.mimi .tree-node text, body.mimi .tree-legend, body.mimi .muted,
-body.mimi .info-grid span, body.mimi .comment-box label { color: #d8bda5; }
-body.mimi .tree-node.current text, body.mimi .info-grid b, body.mimi .board-footer b { color: #fff4e7; }
-body.mimi .tree-node.black circle { fill: #1d1715; stroke: #c4a28b; }
-body.mimi .tree-node.white circle { fill: #fff4e6; stroke: #a57d62; }
+body.mimi .info-grid span, body.mimi .comment-box label { color: #79675e; }
+body.mimi .tree-node.current text, body.mimi .info-grid b, body.mimi .board-footer b { fill: #49342c; color: #49342c; }
+body.mimi .tree-node.black circle { fill: #292a30; stroke: #54535a; }
+body.mimi .tree-node.white circle { fill: #fff; stroke: #c1b6ae; }
 body.mimi .button-quiet, body.mimi .small-button, body.mimi .round-button,
-body.mimi .icon-button { color: #f8e4d0; background: rgba(100, 65, 45, .55); border-color: rgba(255, 225, 196, .17); }
-body.mimi .small-button:hover, body.mimi .icon-button:hover { color: #ffe0bd; border-color: rgba(255,193,132,.56); background: rgba(133,81,49,.55); }
-body.mimi .button-primary { color: #392115; background: linear-gradient(135deg, #ffe0b2, #ffb46e 56%, #f0a7a3); box-shadow: 0 9px 25px rgba(236, 143, 83, .22); }
-body.mimi .status-tag { color: #ffe0b2; background: rgba(114, 72, 40, .56); border-color: rgba(255,193,132,.25); }
-body.mimi .status-tag.ready { color: #d6f0cf; background: rgba(55, 91, 59, .48); }
-body.mimi .modal { color: var(--text); border-color: rgba(255,193,132,.3); background: linear-gradient(145deg,#493126,#281d18); }
-body.mimi .modal-head, body.mimi .setting-row { border-color: rgba(255,225,196,.16); }
+body.mimi .icon-button { color: #624535; background: #fff8f3; border-color: #eed9ca; }
+body.mimi .small-button:hover, body.mimi .icon-button:hover { color: #a84f25; border-color: #e9a27b; background: #fff0e4; }
+body.mimi .button-primary { color: #fffaf5; background: linear-gradient(135deg, #f69a61, #e47640 58%, #d17b78); box-shadow: 0 9px 25px rgba(225, 123, 67, .2); }
+body.mimi .status-tag { color: #95502f; background: #fff0df; border-color: #f1d0b4; }
+body.mimi .status-tag.ready { color: #347356; background: #e6f4e9; border-color: #cce5d1; }
+body.mimi .modal { color: #49342c; border-color: #f0d5c2; background: linear-gradient(145deg,#fffdfa,#fff3e9); }
+body.mimi .modal-head, body.mimi .setting-row { border-color: #efdfd4; }
 body.mimi .modal select, body.mimi .modal input, body.mimi .modal textarea,
-body.mimi .form-field input, body.mimi .form-field select { color: #fff2e3; background: #30221b; border-color: rgba(255,225,196,.2); }
-body.mimi .modal select option { color: #fff2e3; background: #30221b; }
-body.mimi .stone-preview-row { background: rgba(29,20,16,.5); border-color: rgba(255,225,196,.15); }
+body.mimi .form-field input, body.mimi .form-field select { color: #49342c; background: #fff; border-color: #e7d4c7; }
+body.mimi .modal select option { color: #49342c; background: #fff; }
+body.mimi .stone-preview-row { background: #fff8f3; border-color: #efdfd4; }
 body.mimi .setting-row label, body.mimi .setting-row output, body.mimi .modal label,
-body.mimi .modal p { color: #f1d9c2; }
-body.mimi .modal-actions { background: linear-gradient(180deg, transparent, rgba(40,29,24,.96)); }
-body.mimi .candidate-rank { color: #4b2c1d; background: #ffd6a8; }
+body.mimi .modal p { color: #5e493e; }
+body.mimi .modal-actions { background: linear-gradient(180deg, transparent, rgba(255,248,242,.97)); }
+body.mimi .candidate-rank { color: #7c3e22; background: #ffe1c8; }
+body.mimi .candidate-list { color: #49342c; }
+body.mimi .library-card { color: #49342c; border-color: #efdfd4; background: linear-gradient(145deg,#fff,#fff6ef); }
+body.mimi .library-card b { color: #49342c; }
+body.mimi .board-wrap { border-color: #f1c5a8; background: linear-gradient(145deg,#fff0e2,#fffbf6); box-shadow: 0 15px 32px rgba(126,76,51,.12), inset 0 1px 0 #fff; }
+body.mimi .board-pulse { background: radial-gradient(ellipse,rgba(255,180,124,.22),rgba(247,205,186,.12) 44%,transparent 72%); }
+body.mimi .ai-orb { background: radial-gradient(circle at 25% 20%,#fff4d8,#ffc28f 48%,#ee8d61 90%); box-shadow: 0 0 28px rgba(231,132,79,.2); }
+body.mimi .count-badge { color: #9d5a38; border-color: #f1d2bf; background: #fff0e6; }
+body.mimi .pass-button { color: #c76835; }
+body.mimi .toast { color: #553321; background: linear-gradient(120deg,#fff1df,#ffd2ba); }

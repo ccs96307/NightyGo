@@ -602,38 +602,33 @@ function scheduleAmbientFrame() {
 }
 function paintMimiCatStone(ctx, x, y, radius, color) {
   const black = color === BLACK;
-  const face = ctx.createRadialGradient(x - radius * .34, y - radius * .44, radius * .08, x, y, radius * 1.12);
-  if (black) { face.addColorStop(0, '#636775'); face.addColorStop(.38, '#252936'); face.addColorStop(1, '#090b10'); }
-  else { face.addColorStop(0, '#fff'); face.addColorStop(.58, '#fffaf1'); face.addColorStop(1, '#e8d8c9'); }
+  const stone = ctx.createRadialGradient(x - radius * .34, y - radius * .42, radius * .05, x, y, radius * 1.12);
+  if (black) { stone.addColorStop(0, '#747986'); stone.addColorStop(.3, '#353a45'); stone.addColorStop(.78, '#171a20'); stone.addColorStop(1, '#07090d'); }
+  else { stone.addColorStop(0, '#fff'); stone.addColorStop(.55, '#f4f5f5'); stone.addColorStop(.88, '#d7dbe0'); stone.addColorStop(1, '#aab0b8'); }
+  const earStroke = black ? 'rgba(255,255,255,.22)' : 'rgba(82,89,99,.34)';
   ctx.save();
-  ctx.shadowColor = 'rgba(47, 31, 24, .42)'; ctx.shadowBlur = radius * .28; ctx.shadowOffsetY = radius * .17;
-  ctx.fillStyle = face;
-  ctx.beginPath();
-  ctx.moveTo(x - radius * .78, y - radius * .35);
-  ctx.lineTo(x - radius * .98, y - radius * 1.03);
-  ctx.lineTo(x - radius * .31, y - radius * .76);
-  ctx.quadraticCurveTo(x, y - radius * 1.04, x + radius * .31, y - radius * .76);
-  ctx.lineTo(x + radius * .98, y - radius * 1.03);
-  ctx.lineTo(x + radius * .78, y - radius * .35);
-  ctx.quadraticCurveTo(x + radius * .82, y + radius * .68, x, y + radius * .82);
-  ctx.quadraticCurveTo(x - radius * .82, y + radius * .68, x - radius * .78, y - radius * .35);
-  ctx.closePath(); ctx.fill();
+  ctx.shadowColor = 'rgba(20, 17, 17, .42)'; ctx.shadowBlur = radius * .28; ctx.shadowOffsetY = radius * .16;
+  ctx.fillStyle = stone;
+  for (const side of [-1, 1]) {
+    ctx.beginPath();
+    ctx.moveTo(x + side * radius * .43, y - radius * .48);
+    ctx.quadraticCurveTo(x + side * radius * .67, y - radius * 1.32, x + side * radius * .96, y - radius * 1.12);
+    ctx.quadraticCurveTo(x + side * radius * 1.05, y - radius * .76, x + side * radius * .78, y - radius * .26);
+    ctx.closePath(); ctx.fill(); ctx.strokeStyle = earStroke; ctx.lineWidth = Math.max(.55, radius * .04); ctx.stroke();
+  }
+  ctx.beginPath(); ctx.arc(x, y, radius, 0, Math.PI * 2); ctx.fill();
   ctx.shadowColor = 'transparent';
-  ctx.strokeStyle = black ? 'rgba(255,255,255,.28)' : 'rgba(115,79,58,.48)';
-  ctx.lineWidth = Math.max(.7, radius * .055); ctx.stroke();
-  const eyeColor = black ? '#d9efaa' : '#9d663f';
-  const eyeY = y - radius * .12, eyeX = radius * .31, eyeR = Math.max(.8, radius * .09);
-  ctx.fillStyle = eyeColor;
-  for (const direction of [-1, 1]) {
-    ctx.beginPath(); ctx.ellipse(x + direction * eyeX, eyeY, eyeR, eyeR * 1.3, direction * -.12, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#20202a'; ctx.beginPath(); ctx.ellipse(x + direction * eyeX, eyeY, eyeR * .28, eyeR * 1.1, 0, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = eyeColor;
+  ctx.strokeStyle = earStroke; ctx.lineWidth = Math.max(.7, radius * .045);
+  ctx.beginPath(); ctx.arc(x, y, radius * .97, 0, Math.PI * 2); ctx.stroke();
+  for (const side of [-1, 1]) {
+    ctx.beginPath();
+    ctx.moveTo(x + side * radius * .56, y - radius * .67);
+    ctx.quadraticCurveTo(x + side * radius * .76, y - radius * 1.08, x + side * radius * .86, y - radius * .92);
+    ctx.quadraticCurveTo(x + side * radius * .87, y - radius * .76, x + side * radius * .72, y - radius * .58);
+    ctx.closePath();
+    ctx.fillStyle = black ? 'rgba(240,156,163,.74)' : 'rgba(237,157,151,.66)'; ctx.fill();
   }
-  ctx.fillStyle = '#d98e91';
-  ctx.beginPath(); ctx.moveTo(x - radius * .1, y + radius * .12); ctx.lineTo(x + radius * .1, y + radius * .12); ctx.lineTo(x, y + radius * .23); ctx.closePath(); ctx.fill();
-  ctx.strokeStyle = black ? 'rgba(255,245,231,.72)' : 'rgba(105,72,57,.58)'; ctx.lineWidth = Math.max(.55, radius * .035); ctx.lineCap = 'round';
-  for (const side of [-1, 1]) for (const offset of [-.03, .14]) {
-    ctx.beginPath(); ctx.moveTo(x + side * radius * .34, y + radius * (.16 + offset)); ctx.lineTo(x + side * radius * .9, y + radius * (.04 + offset)); ctx.stroke();
-  }
+  paintSphereLighting(ctx, x, y, radius);
   ctx.restore();
 }
 function paintStone(ctx, x, y, radius, color) {

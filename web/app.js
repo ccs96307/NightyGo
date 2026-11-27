@@ -1,6 +1,5 @@
 import {parseSgf, serializeSgf} from "./sgf-core.js";
 import {DEFAULT_AI_CONFIG, parseAiConfig, validateAiConfig} from "./ai-config.js";
-import {resolveTouchPlacement} from "./placement-input.js";
 const BLACK = 1, WHITE = 2;
 const $ = (selector) => document.querySelector(selector);
 const I18N = {
@@ -95,7 +94,7 @@ let language = initialLanguage();
 const savedPrefs = readStore('ng.preferences', null);
 let prefs = Object.assign({board:savedPrefs?'wood':'night',stones:savedPrefs?'classic':'moon',size:19,font:15,sound:'01',motion:'full',theme:'dark'}, savedPrefs || {});
 let pendingLinePoint=null;
-let collectionTrees=[], root, current, board = [], captures = {[BLACK]:0,[WHITE]:0}, toPlay = BLACK, last = null, path = [], positionHistory=[], dirty=false, pointer=null, animationFrame=0, library=readStore('ng.library',[]), pendingInstall, engineWorker=null, activeModelId='', engineBoardSize=0, engineReady=false, analyzedNode=null, analyzedBoard=null, ownershipMap=null, engineRequestId=0;
+let collectionTrees=[], root, current, board = [], captures = {[BLACK]:0,[WHITE]:0}, toPlay = BLACK, last = null, path = [], positionHistory=[], dirty=false, pointer=null, touchPreviewAnchor=null, animationFrame=0, library=readStore('ng.library',[]), pendingInstall, engineWorker=null, activeModelId='', engineBoardSize=0, engineReady=false, analyzedNode=null, analyzedBoard=null, ownershipMap=null, engineRequestId=0;
 let animationTimer = 0, gpuState = 'unknown', gpuReason = 'checking', gpuError = '', modelAvailable = false;
 let modelBackendGpu=false,modelVersion=null,lastAnalysisScore=0,analysisOutputType='position',reviewResults=[],reviewMoveCount=0,reviewLine=[],aiProgressState=null,modelLoadingStage='initializingEngine',candidateAnalysis=[];
 const skyStartedAt = performance.now() / 1000;
@@ -210,7 +209,7 @@ function applyLanguage(){document.documentElement.lang=language;document.title=t
 function openMailDialog(){const input=$('#mail-address');input.value=localStorage.getItem('ng.mail-address')||'';$('#mail-dialog').showModal();input.focus()}
 function sendGameMail(){const input=$('#mail-address'),form=$('#mail-dialog form');if(!form.reportValidity())return;const address=input.value.trim();if(!address)return;localStorage.setItem('ng.mail-address',address);const sgf=serializeCollection();const subject=tr('mailSubject'),body=`${tr('mailBody')}\n\n${sgf}`;const url=`mailto:${encodeURIComponent(address)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;if(url.length>7000){toast(tr('mailTooLarge'));return}$('#mail-dialog').close();window.location.href=url}
 function makeRoot(size=19){return {props:{GM:['1'],FF:['4'],CA:['UTF-8'],AP:['NightyGo Web:0.1'],SZ:[String(size)],KM:['6.5']},children:[]}}
-function setupNew(size=Number(prefs.size)){if(root&&dirty)saveLibrary(false);root=makeRoot(size);collectionTrees=[root];current=root;path=[root];dirty=false;rebuild();refresh();writeStore('ng.autosave',serializeCollection())}
+function setupNew(size=Number(prefs.size)){if(root&&dirty)saveLibrary(false);pointer=null;touchPreviewAnchor=null;root=makeRoot(size);collectionTrees=[root];current=root;path=[root];dirty=false;rebuild();refresh();writeStore('ng.autosave',serializeCollection())}
 function boardSize(){let value=root?.props?.SZ?.[0]||'19';if(value.includes(':'))value=value.split(':')[0];return Math.max(2,Math.min(25,Number(value)||19))}
 function emptyBoard(size=boardSize()){return Array.from({length:size},()=>Array(size).fill(0))}
 function neighbors(x,y,n){return [[x-1,y],[x+1,y],[x,y-1],[x,y+1]].filter(([a,b])=>a>=0&&b>=0&&a<n&&b<n)}
@@ -220,8 +219,8 @@ function sameBoard(a,b){return a.length===b.length&&a.every((r,y)=>r.every((v,x)
 function decodePoint(value,n){if(value.length!==2)throw Error('Invalid SGF coordinate');const x=value.charCodeAt(0)-97,y=value.charCodeAt(1)-97;if(x<0||y<0||x>=n||y>=n)throw Error('SGF coordinate outside board');return [x,y]}
 function expandSetup(vals,n){const out=[];for(const val of vals||[]){if(val.includes(':')){const [a,b]=val.split(':').map(v=>decodePoint(v,n));for(let y=Math.min(a[1],b[1]);y<=Math.max(a[1],b[1]);y++)for(let x=Math.min(a[0],b[0]);x<=Math.max(a[0],b[0]);x++)out.push([x,y])}else out.push(decodePoint(val,n))}return out}
 function rebuild(){board=emptyBoard();captures={[BLACK]:0,[WHITE]:0};toPlay=BLACK;last=null;positionHistory=[board];for(const node of path){const p=node.props||{};let hadSetup=false;for(const [key,val] of [['AE',0],['AB',BLACK],['AW',WHITE]])for(const [x,y] of expandSetup(p[key],boardSize())){board[y][x]=val;hadSetup=true}if(hadSetup)positionHistory=[board];if(p.PL?.[0])toPlay=p.PL[0]==='W'?WHITE:BLACK;if(p.B||p.W){const color=p.B?BLACK:WHITE;toPlay=color;const value=(p.B||p.W)[0];if(value===''||(value==='tt'&&boardSize()<=19)){last={color,x:null,y:null,pass:true};toPlay=3-color;positionHistory.push(board);continue}const [x,y]=decodePoint(value,boardSize());const result=applyMove(board,color,x,y);board=result.grid;captures[color]+=result.captured.length;last={color,x,y};toPlay=3-color;positionHistory.push(board)}}}
-function appendMove(x,y,pass=false){if(path.length>2){const p1=path.at(-1).props,p2=path.at(-2).props;if((p1.B?.[0]===''||p1.W?.[0]==='')&&(p2.B?.[0]===''||p2.W?.[0]==='')){toast(tr('gameOver'));return}}const color=toPlay,props={};props[color===BLACK?'B':'W']=[pass?'':String.fromCharCode(97+x)+String.fromCharCode(97+y)];const node={props,children:[]};current.children.push(node);current=node;path.push(node);dirty=true;rebuild();if(!pass)playSound(prefs.sound);refresh()}
-function navigateTo(target){const found=[];function search(node){found.push(node);if(node===target)return true;for(const c of node.children||[])if(search(c))return true;found.pop();return false}if(search(root)){path=found;current=target;rebuild();refresh()}}
+function appendMove(x,y,pass=false){if(path.length>2){const p1=path.at(-1).props,p2=path.at(-2).props;if((p1.B?.[0]===''||p1.W?.[0]==='')&&(p2.B?.[0]===''||p2.W?.[0]==='')){toast(tr('gameOver'));return}}pointer=null;touchPreviewAnchor=null;const color=toPlay,props={};props[color===BLACK?'B':'W']=[pass?'':String.fromCharCode(97+x)+String.fromCharCode(97+y)];const node={props,children:[]};current.children.push(node);current=node;path.push(node);dirty=true;rebuild();if(!pass)playSound(prefs.sound);refresh()}
+function navigateTo(target){const found=[];function search(node){found.push(node);if(node===target)return true;for(const c of node.children||[])if(search(c))return true;found.pop();return false}if(search(root)){pointer=null;touchPreviewAnchor=null;path=found;current=target;rebuild();refresh()}}
 function previous(){if(path.length>1){path.pop();current=path.at(-1);rebuild();refresh()}}
 function next(index=0){if(current.children?.length){const nextNode=current.children[index]||current.children[0];path.push(nextNode);current=nextNode;rebuild();refresh()}else toast(tr('noBranch'))}
 function updateComment(value){if(value.trim())current.props.C=[value];else delete current.props.C;dirty=true;refreshTree();writeStore('ng.autosave',serializeCollection())}
@@ -366,6 +365,10 @@ function drawBoard() {
   const ctx = canvas.getContext('2d');
   const width = canvas.width, height = canvas.height;
   if (!width || !height) return;
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.clearRect(0, 0, width, height);
   const size = boardSize();
   const pad = width * 0.063;
   const step = (width - pad * 2) / (size - 1);
@@ -415,6 +418,16 @@ function drawBoard() {
       ctx.beginPath(); ctx.arc(pad + x * step, pad + y * step, step * .14, 0, Math.PI * 2); ctx.fill();
     }
   }
+  const previewValid = $('#markup-tool')?.value === 'none' && pointer && pointer.x >= 0 && pointer.y >= 0 && pointer.x < size && pointer.y < size && !board[pointer.y]?.[pointer.x];
+  if (previewValid && pointer.touchPreview) {
+    const x = pad + pointer.x * step, y = pad + pointer.y * step;
+    ctx.save();
+    ctx.strokeStyle = prefs.board === 'wood' ? 'rgba(38, 48, 61, .82)' : 'rgba(238, 246, 255, .9)';
+    ctx.lineWidth = Math.max(1.5, width * .0024);
+    ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(width - pad, y);
+    ctx.moveTo(x, pad); ctx.lineTo(x, height - pad); ctx.stroke();
+    ctx.restore();
+  }
   for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
     if (board[y]?.[x]) paintStone(ctx, pad + x * step, pad + y * step, step * .455, board[y][x]);
   }
@@ -426,11 +439,13 @@ function drawBoard() {
     ctx.lineWidth = Math.max(1.2, width * .0024);
     ctx.beginPath(); ctx.arc(x, y, step * .19, 0, Math.PI * 2); ctx.stroke();
   }
-  if ($('#markup-tool')?.value === 'none' && pointer && pointer.x >= 0 && pointer.y >= 0 && pointer.x < size && pointer.y < size && !board[pointer.y]?.[pointer.x]) {
-    ctx.globalAlpha = .46;
+  if (previewValid) {
+    ctx.save();
+    ctx.globalAlpha = pointer.touchPreview ? .28 : .46;
     paintStone(ctx, pad + pointer.x * step, pad + pointer.y * step, step * .455, toPlay);
-    ctx.globalAlpha = 1;
+    ctx.restore();
   }
+  ctx.restore();
   scheduleAmbientFrame();
 }
 const boardTextureCache = new Map();
@@ -619,7 +634,7 @@ function bind(){
  $('#language').onchange=e=>{language=e.target.value;localStorage.removeItem(LANGUAGE_COOKIE);saveLanguageCookie(language);applyLanguage();refresh();refreshModels().catch(error=>console.warn('Could not refresh localized model list',error))};$('#settings-open').onclick=openSettings;
  $('#new-game').onclick=()=>{if(dirty)saveLibrary(false);setupNew(Number(prefs.size))};$('#import-button').onclick=()=>$('#file-input').click();$('#file-input').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{if(dirty)saveLibrary(false);const bytes=await f.arrayBuffer();const header=new TextDecoder('ascii').decode(bytes.slice(0,8192));const charset=header.match(/\bCA\[([^\]]+)\]/)?.[1]||'ISO-8859-1';let contents;try{contents=new TextDecoder(charset).decode(bytes)}catch{contents=new TextDecoder('utf-8').decode(bytes)}const games=parseSgf(contents);loadSgfTree(games[0],games);if(games.length>1)showGameChooser(games)}catch(err){console.error(err);toast(tr('badSgf'))}e.target.value=''};
  $('#save-sgf').onclick=downloadSgf;$('#send-mail').onclick=openMailDialog;$('#mail-address').oninput=e=>{if(e.target.checkValidity()&&e.target.value.trim())localStorage.setItem('ng.mail-address',e.target.value.trim())};$('#open-mail').onclick=sendGameMail;$('#score-game').onclick=scoreGame;$('#undo').onclick=previous;$('#redo').onclick=()=>next(0);$('#previous').onclick=previous;$('#next').onclick=()=>next(0);$('#first').onclick=()=>navigateTo(root);$('#last').onclick=()=>{let n=root;while(n.children?.length)n=n.children[0];navigateTo(n)};$('#pass').onclick=()=>appendMove(0,0,true);$('#main-line').onclick=()=>{$('#main-line').classList.toggle('active');refreshTree()};$('#collapse-tree').onclick=()=>{treePan.x=0;treePan.y=0;$('#tree-scroll').scrollTo({left:0,top:0,behavior:'smooth'});refreshTree()};bindTreePan();$('#review-game').onclick=reviewGame;$('#check-gpu').onclick=checkGpu;$('#model-center').onclick=openModelCenter;document.querySelectorAll('[data-model-url]').forEach(button=>button.onclick=()=>downloadOfficialModel(button.dataset.modelUrl,button.dataset.modelName).catch(()=>{}));$('#model-file').onchange=e=>importModel(e.target.files[0]).catch(err=>toast(err.message));$('#save-ai-config').onclick=downloadAiConfig;$('#export-ai-config').onclick=()=>{const config=storedAiConfig();if(!config)return;const blob=new Blob([JSON.stringify(config,null,2)+'\n'],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='nightygo-ai-profile.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)};$('#ai-config-file').onchange=e=>importAiConfig(e.target.files[0]).catch(err=>toast(err.message));$('#search-visits').onchange=refreshAiSetup;$('#search-time').onchange=refreshAiSetup;$('#load-model').onclick=()=>loadSelectedModel().catch(err=>toast(err.message));$('#analyze-position').onclick=analyzePosition;$('#play-ai').onclick=playAiMove;
- $('#markup-tool').onchange=e=>{pendingLinePoint=null;$('#markup-label').disabled=e.target.value!=='LB';drawBoard()};$('#markup-label').disabled=true;const canvas=$('#go-board');canvas.onpointermove=e=>{const p=boardPoint(e.clientX,e.clientY);pointer=p.distance<canvas.getBoundingClientRect().width*.055?{x:p.x,y:p.y,touchPreview:e.pointerType==='touch'}:null;drawBoard()};canvas.onpointerleave=e=>{if(e.pointerType!=='touch'){pointer=null;drawBoard()}};canvas.onpointerdown=e=>{if(e.button!==0)return;const p=boardPoint(e.clientX,e.clientY);if(p.distance>canvas.getBoundingClientRect().width*.055)return;if(addMarkup(p.x,p.y))return;if(e.pointerType==='touch'){const tap=resolveTouchPlacement(pointer,p);if(!tap.confirm){pointer=tap.preview;drawBoard();return}pointer=null;drawBoard()}try{const ko=last&&!last.pass&&positionHistory.length>1?positionHistory.at(-2):null;const result=applyMove(board,toPlay,p.x,p.y,true,ko);const cap=result.captured.length;appendMove(p.x,p.y);if(cap)playCapture(cap)}catch(err){toast(err.message||tr('illegal'))}};canvas.onkeydown=e=>{if(e.key==='ArrowLeft')previous();if(e.key==='ArrowRight')next(0)};window.addEventListener('resize',()=>{resizeCanvas();refreshTree()});new ResizeObserver(()=>{resizeCanvas();refreshTree()}).observe($('#board-wrap'));
+ $('#markup-tool').onchange=e=>{pendingLinePoint=null;$('#markup-label').disabled=e.target.value!=='LB';drawBoard()};$('#markup-label').disabled=true;const canvas=$('#go-board');canvas.onpointermove=e=>{const p=boardPoint(e.clientX,e.clientY);pointer=p.distance<canvas.getBoundingClientRect().width*.055?{x:p.x,y:p.y,touchPreview:e.pointerType==='touch'}:null;drawBoard()};canvas.onpointerleave=e=>{if(e.pointerType!=='touch'){pointer=null;drawBoard()}};canvas.onpointerdown=e=>{if(e.button!==0)return;const p=boardPoint(e.clientX,e.clientY);if(p.distance>canvas.getBoundingClientRect().width*.055)return;if(addMarkup(p.x,p.y))return;if(e.pointerType==='touch'){const samePoint=touchPreviewAnchor?.x===p.x&&touchPreviewAnchor?.y===p.y;if(!samePoint){touchPreviewAnchor={x:p.x,y:p.y};pointer={x:p.x,y:p.y,touchPreview:true};drawBoard();return}touchPreviewAnchor=null;pointer=null;drawBoard()}try{const ko=last&&!last.pass&&positionHistory.length>1?positionHistory.at(-2):null;const result=applyMove(board,toPlay,p.x,p.y,true,ko);const cap=result.captured.length;appendMove(p.x,p.y);if(cap)playCapture(cap)}catch(err){toast(err.message||tr('illegal'))}};canvas.onkeydown=e=>{if(e.key==='ArrowLeft')previous();if(e.key==='ArrowRight')next(0)};window.addEventListener('resize',()=>{resizeCanvas();refreshTree()});new ResizeObserver(()=>{resizeCanvas();refreshTree()}).observe($('#board-wrap'));
  $('#save-comment').onclick=()=>{updateComment($('#comment').value);toast(tr('commentSaved'))};$('#edit-info').onclick=()=>{for(const [id,key] of [['edit-black','PB'],['edit-white','PW'],['edit-event','EV'],['edit-result','RE'],['edit-komi','KM']])$('#'+id).value=root.props[key]?.[0]||'';$('#info-dialog').showModal()};$('#apply-info').onclick=()=>{for(const [id,key] of [['edit-black','PB'],['edit-white','PW'],['edit-event','EV'],['edit-result','RE'],['edit-komi','KM']])setProp(key,$('#'+id).value.trim());const handicap=Math.max(0,Math.min(9,Number($('#edit-handicap').value)||0));if(path.length>1&&handicap!==Number(root.props.HA?.[0]||0)){toast(tr('handicapBeforeStart'));return}setProp('HA',handicap?String(handicap):'');if(path.length===1){if(handicap)root.props.AB=handicapPoints(boardSize(),handicap);else delete root.props.AB;if(handicap)root.props.PL=['W'];else delete root.props.PL;rebuild();refresh()}toast(tr('metadataSaved'))};$('#library-search').oninput=refreshLibrary;
  $('#font-size').oninput=e=>{$('#font-value').value=`${e.target.value} px`;document.documentElement.style.setProperty('--font',`${e.target.value}px`)};$('#preview-sound').onclick=()=>playSound($('#placement-sound').value);$('#theme').onchange=e=>document.body.classList.toggle('light',e.target.value==='light');$('#motion').onchange=e=>{prefs.motion=e.target.value;drawBoard()};$('#board-material').onchange=e=>{prefs.board=e.target.value;drawBoard()};$('#stone-material').onchange=e=>{prefs.stones=e.target.value;drawBoard();drawStonePreviews()};$('#save-settings').onclick=()=>{const newSize=Number($('#board-size').value);prefs={...prefs,theme:$('#theme').value,board:$('#board-material').value,stones:$('#stone-material').value,size:newSize,font:Number($('#font-size').value),sound:$('#placement-sound').value,motion:$('#motion').value};if(newSize!==boardSize()){prefs.size=newSize;setupNew(newSize);toast(tr('settingsApplied'))}else{writeStore('ng.preferences',prefs);applyPrefs();toast(tr('settingsApplied'))}};$('#settings-dialog').addEventListener('close',()=>{if($('#settings-dialog').returnValue!=='default')restoreSettings();else{prefs={...prefs,theme:$('#theme').value,board:$('#board-material').value,stones:$('#stone-material').value,font:Number($('#font-size').value),sound:$('#placement-sound').value,motion:$('#motion').value};writeStore('ng.preferences',prefs);applyPrefs()}});
  $('#install-app').onclick=async()=>{if(pendingInstall){pendingInstall.prompt();pendingInstall=null;$('#install-app').hidden=true}};window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();pendingInstall=e;$('#install-app').hidden=false});window.addEventListener('beforeunload',e=>{if(root&&dirty){writeStore('ng.autosave',serializeCollection());e.preventDefault();e.returnValue=''}});

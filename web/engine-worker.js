@@ -1,6 +1,7 @@
 /* KataGo WASM runs off the UI thread. Model bytes are sent by the page and never uploaded. */
 importScripts('assets/engine/kataeval.js');
 let moduleInstance, boardSize = 19, moveLocPtr, moveColorPtr;
+let stopCandidateSearch = false;
 function allocateMoves(moves) {
   if (moveLocPtr) moduleInstance._free(moveLocPtr);
   if (moveColorPtr) moduleInstance._free(moveColorPtr);
@@ -44,19 +45,28 @@ async function searchMoves({moves,toPlay,komi,visits,maxSearchTimeMs=15000}) {
   const result={best:moduleInstance.HEAP32[best>>2],winrate:moduleInstance.HEAPF32[wr>>2],visits:moduleInstance.HEAP32[done>>2],pv:Array.from(moduleInstance.HEAP32.subarray(pv>>2,(pv>>2)+moduleInstance.HEAP32[pvLen>>2]))};
   [best,wr,pv,pvLen,done].forEach(ptr=>moduleInstance._free(ptr));return result;
 }
-async function analyzeCandidates({moves,toPlay,komi,candidateLocs,visits=128,maxSearchTimeMs=15000},onUpdate=()=>{}){
-  const candidates=[],opponent=toPlay===1?2:1,total=Math.max(1,candidateLocs.length),perCandidateTime=Math.max(250,Math.floor(maxSearchTimeMs/total));
-  for(let index=0;index<candidateLocs.length;index++){
-    const loc=candidateLocs[index],moveLoc=loc===boardSize*boardSize?-1:loc;
-    onUpdate({type:'analysisProgress',current:index+1,total,loc});
-    const result=await searchMoves({moves:[...moves,{loc:moveLoc,color:toPlay}],toPlay:opponent,komi,visits,maxSearchTimeMs:perCandidateTime});
-    const candidate={loc,visits:result.visits,winrate:Math.max(0,Math.min(1,1-result.winrate)),pv:result.pv};
-    candidates.push(candidate);onUpdate({type:'analysisCandidate',candidate});
-  }
-  candidates.sort((a,b)=>b.winrate-a.winrate);return {candidates};
+async function analyzeCandidates({moves,toPlay,komi,candidateLocs,visits=128,maxSearchTimeMs=15000,continuous=false},onUpdate=()=>{}){
+  const candidates=new Map(),opponent=toPlay===1?2:1,total=Math.max(1,candidateLocs.length),perCandidateTime=Math.max(250,Math.floor(maxSearchTimeMs/total));
+  stopCandidateSearch=false;
+  let round=0;
+  do{
+    round++;
+    for(let index=0;index<candidateLocs.length;index++){
+      if(stopCandidateSearch)break;
+      const loc=candidateLocs[index],moveLoc=loc===boardSize*boardSize?-1:loc;
+      onUpdate({type:'analysisProgress',current:index+1,total,loc,round});
+      const result=await searchMoves({moves:[...moves,{loc:moveLoc,color:toPlay}],toPlay:opponent,komi,visits,maxSearchTimeMs:perCandidateTime});
+      const previous=candidates.get(loc),sample=Math.max(1,result.visits),sampleWinrate=Math.max(0,Math.min(1,1-result.winrate));
+      const candidate={loc,visits:(previous?.visits||0)+result.visits,winrate:previous?((previous.winrate*previous.visits+sampleWinrate*sample)/(previous.visits+sample)):sampleWinrate,pv:result.pv};
+      candidates.set(loc,candidate);onUpdate({type:'analysisCandidate',candidate});
+    }
+    onUpdate({type:'analysisRound',round});
+  }while(continuous&&!stopCandidateSearch);
+  return {candidates:[...candidates.values()].sort((a,b)=>b.winrate-a.winrate),rounds:round,stopped:stopCandidateSearch};
 }
 let requestQueue=Promise.resolve();
 self.onmessage=({data})=>{
+  if(data.type==='stopAnalysis'){stopCandidateSearch=true;return}
   const run=async()=>{
     try{
       let result;

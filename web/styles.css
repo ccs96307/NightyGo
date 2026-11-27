@@ -18,6 +18,9 @@ body.light .markup-bar select,body.light .markup-bar input{background:#f0f1f3;co
 .ai-actions{align-items:stretch}
 .ai-actions #analyze-position{min-width:150px}
 .ai-actions #model-center,.ai-actions #play-ai{flex:0 0 auto;min-height:44px}
+.ai-actions #model-center.configure-button{color:#d2e0fb;background:linear-gradient(145deg,#202f49,#18253a);border-color:#647fae;box-shadow:inset 0 1px rgba(255,255,255,.07),0 4px 12px rgba(0,0,0,.14);font-weight:700}
+.ai-actions #model-center.configure-button:hover{color:#eff5ff;border-color:#91a9d3;background:linear-gradient(145deg,#293c5b,#1d2d45)}
+.ai-actions #analyze-position.is-running{background:linear-gradient(120deg,#f2baa0,#eaa1ad);color:#34212a}
 .analysis-panel>.full-width{flex:0 0 auto;margin-top:8px;min-height:44px}
 .panel-tools{display:flex;align-items:center;gap:7px;min-width:0}
 .panel-drag-handle{width:30px;height:30px;border:1px solid var(--line);border-radius:8px;background:#111927;color:var(--muted);font-size:1rem;line-height:1;cursor:grab;touch-action:none}

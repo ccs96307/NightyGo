@@ -751,3 +751,7 @@ body.light .model-progress-steps li[data-state="active"], body.mimi .model-progr
 body.light .model-progress-steps li[data-state="complete"] { color: #17664e; }
 body.mimi .model-progress-steps li[data-state="complete"] { color: #35714f; }
 body.light .model-progress-detail, body.mimi .model-progress-detail { color: #526680; }
+body.light .ai-actions #model-center.configure-button { color: #355276; background: linear-gradient(145deg,#f5f8ff,#e7effb); border-color: #a8bddc; box-shadow: inset 0 1px #fff,0 3px 9px rgba(48,72,112,.09); }
+body.light .ai-actions #model-center.configure-button:hover { color: #263c5b; border-color: #7f9fc9; background: linear-gradient(145deg,#fff,#e8f0fc); }
+body.mimi .ai-actions #model-center.configure-button { color: #815239; background: linear-gradient(145deg,#fffaf5,#ffecdd); border-color: #e7b993; box-shadow: inset 0 1px #fff,0 3px 9px rgba(158,94,51,.09); }
+body.mimi .ai-actions #model-center.configure-button:hover { color: #68422f; border-color: #d99062; background: linear-gradient(145deg,#fffdf9,#ffe5d2); }

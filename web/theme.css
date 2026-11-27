@@ -663,3 +663,63 @@ body.mimi .ai-orb { background: radial-gradient(circle at 25% 20%,#fff4d8,#ffc28
 body.mimi .count-badge { color: #9d5a38; border-color: #f1d2bf; background: #fff0e6; }
 body.mimi .pass-button { color: #c76835; }
 body.mimi .toast { color: #553321; background: linear-gradient(120deg,#fff1df,#ffd2ba); }
+
+/* Clear, finger-friendly board controls and readable judgment feedback. */
+:root { --font: 17px; }
+.toolbar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 9px; padding: 11px 13px; }
+.toolbar > .nav-group { gap: 8px; }
+.toolbar .tool-button {
+  min-height: 46px;
+  padding: 10px 15px;
+  border: 1px solid rgba(177, 198, 233, .2);
+  border-radius: 13px;
+  color: var(--text);
+  background: linear-gradient(145deg, rgba(30, 42, 64, .94), rgba(20, 29, 46, .96));
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.2;
+  transition: transform .16s ease, border-color .16s ease, background .16s ease, box-shadow .16s ease;
+}
+.toolbar .tool-button:hover:not(:disabled) { transform: translateY(-1px); border-color: rgba(138,240,211,.55); box-shadow: 0 6px 18px rgba(0,0,0,.16); }
+.toolbar .tool-button:focus-visible, .toolbar .round-button:focus-visible { outline: 3px solid rgba(138,240,211,.62); outline-offset: 2px; }
+.toolbar .tool-button:disabled { opacity: .48; cursor: not-allowed; }
+.toolbar .tool-button.overlay-toggle { gap: 8px; }
+.toolbar .tool-button.overlay-toggle::before { content: "◉"; font-size: 1.08em; line-height: 1; color: #9aacc8; }
+.toolbar .tool-button.overlay-toggle[aria-pressed="true"] { color: #f5fffc; border-color: rgba(119,226,201,.62); background: linear-gradient(135deg, #176b64, #2d5575); box-shadow: 0 5px 18px rgba(69,180,158,.18); }
+.toolbar .tool-button.overlay-toggle[aria-pressed="true"]::before { color: #a9ffe8; }
+.toolbar .round-button { width: 44px; height: 44px; min-width: 44px; font-size: 1.2rem; border: 1px solid rgba(177,198,233,.14); background: rgba(20,29,46,.74); }
+.toolbar #move-position { min-width: 66px; text-align: center; font-size: .95rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.board-estimate {
+  position: absolute;
+  z-index: 3;
+  top: 14px;
+  left: 14px;
+  max-width: calc(100% - 28px);
+  padding: 10px 14px;
+  border: 1px solid rgba(226,235,255,.4);
+  border-radius: 13px;
+  color: #f6f9ff;
+  background: rgba(16,24,39,.88);
+  box-shadow: 0 8px 24px rgba(0,0,0,.23);
+  font-size: .9rem;
+  font-weight: 700;
+  line-height: 1.45;
+  backdrop-filter: blur(12px);
+  pointer-events: none;
+}
+.board-estimate[hidden] { display: none; }
+body.light .toolbar .tool-button { color: #263449; background: linear-gradient(145deg,#fff,#edf2f8); border-color: #cbd6e4; }
+body.light .toolbar .tool-button.overlay-toggle[aria-pressed="true"] { color: #fff; background: linear-gradient(135deg,#087e76,#3b699c); }
+body.light .board-estimate { color: #233249; border-color: #d0d9e5; background: rgba(255,255,255,.94); }
+body.mimi .toolbar .tool-button { color: #624535; background: linear-gradient(145deg,#fff,#fff2e8); border-color: #edcfba; }
+body.mimi .toolbar .tool-button.overlay-toggle[aria-pressed="true"] { color: #fffaf5; background: linear-gradient(135deg,#ee8c50,#d76d3d); border-color: #e38a5d; }
+body.mimi .toolbar .tool-button.overlay-toggle[aria-pressed="true"]::before { color: #fff2e7; }
+body.mimi .board-estimate { color: #593c2d; border-color: #efcfb8; background: rgba(255,250,245,.96); }
+#toast { max-width: min(920px,calc(100vw - 28px)); padding: 17px 24px; border-radius: 16px; font-size: clamp(1rem,1.65vw,1.28rem); font-weight: 750; line-height: 1.5; text-align: center; }
+@media (max-width: 790px) {
+  .toolbar { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; }
+  .toolbar > .nav-group:first-child, .toolbar > .nav-group.nav-center { grid-column: 1 / -1; justify-content: center; }
+  .toolbar .nav-group:first-child { justify-content: space-between; }
+  .toolbar .tool-button { justify-content: center; min-width: 0; padding-inline: 8px; font-size: .91rem; }
+  .board-estimate { top: 9px; left: 9px; padding: 8px 10px; font-size: .82rem; }
+}

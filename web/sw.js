@@ -1,8 +1,8 @@
-const CACHE = 'nightygo-web-v24';
+const CACHE = 'nightygo-web-v25';
 const ROOT = new URL('./', self.location.href);
-const FILES = ['./', './index.html', './styles.css', './theme.css?v=24', './app.js', './ai-config.js', './placement-input.js', './sgf-core.js', './engine-worker.js', './assets/engine/kataeval.js', './assets/engine/kataeval.wasm', './manifest.webmanifest', './icon.svg',
+const FILES = ['./', './index.html', './styles.css', './theme.css?v=25', './app.js', './ai-config.js', './placement-input.js', './sgf-core.js', './engine-worker.js', './assets/engine/kataeval.js', './assets/engine/kataeval.wasm', './manifest.webmanifest', './icon.svg',
   './assets/sounds/go_stone_01.wav', './assets/sounds/go_stone_02.wav', './assets/sounds/go_stone_03.wav',
-  './assets/sounds/go_stone_04.wav', './assets/sounds/go_stone_05.wav', './assets/sounds/capture_single.wav',
+  './assets/sounds/go_stone_04.wav', './assets/sounds/cat_meow.mp3', './assets/sounds/go_stone_05.wav', './assets/sounds/capture_single.wav',
   './assets/sounds/capture_small_group.wav', './assets/sounds/capture_group.wav', './assets/sounds/capture_large_group.wav'];
 self.addEventListener('install', event => event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(FILES)).then(() => self.skipWaiting())));
 self.addEventListener('activate', event => event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key !== CACHE).map(key => caches.delete(key)))).then(() => self.clients.claim())));

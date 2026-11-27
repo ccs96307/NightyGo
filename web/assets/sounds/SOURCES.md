@@ -14,3 +14,12 @@ mono 44.1 kHz PCM WAV for low-latency playback.
 The four `capture_*.wav` pickup patterns are derived from those CC0 stone
 impacts. They combine one, two, three, or five quick clacks so single stones,
 small groups, groups, and large groups have distinct audible feedback.
+
+# Cat meow placement recording
+
+`cat_meow.mp3` is the short preview of **Cat Meow** by qubodup on Freesound:
+
+<https://freesound.org/people/qubodup/sounds/813119/>
+
+Freesound marks the source CC0 1.0. The 0.455-second clip is used as an
+optional placement sound and is bundled as an MP3 preview.

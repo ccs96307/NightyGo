@@ -723,3 +723,25 @@ body.mimi .board-estimate { color: #593c2d; border-color: #efcfb8; background: r
   .toolbar .tool-button { justify-content: center; min-width: 0; padding-inline: 8px; font-size: .91rem; }
   .board-estimate { top: 9px; left: 9px; padding: 8px 10px; font-size: .82rem; }
 }
+
+/* Bright themes keep shared controls and AI setup surfaces in the same palette. */
+body.light, body.mimi { color-scheme: light; }
+body.light .panel-drag-handle, body.mimi .panel-drag-handle {
+  color: #40516a;
+  border-color: #d4deea;
+  background: linear-gradient(145deg, #fff, #edf2f8);
+  box-shadow: 0 2px 8px rgba(48, 64, 87, .08);
+}
+body.mimi .panel-drag-handle { color: #704b37; border-color: #edd6c5; background: linear-gradient(145deg, #fffdfa, #fff0e4); }
+body.light .panel-drag-handle:hover, body.mimi .panel-drag-handle:hover { color: #a95027; border-color: #e5a982; background: #fff3e8; }
+body.light .is-missing { color: #a34e2c; }
+body.mimi .is-missing { color: #a74e26; }
+body.light .status-tag, body.mimi .status-tag { color: #795013; background: #fff2d9; border-color: #efddb7; }
+body.light .status-tag.ready, body.mimi .status-tag.ready { color: #17664e; background: #e0f4e9; border-color: #c9e5d4; }
+body.light .setting-row input[type="range"], body.mimi .setting-row input[type="range"] { accent-color: #6b9fe9; }
+body.light .top-actions select:hover { color: #24344b; background: #edf2f8; }
+body.mimi .top-actions select:hover { color: #49342c; background: #fff0e4; }
+body.light .ai-profile-card, body.light .model-dialog .ai-profile-card { color: #34445a; background: #f5f8fc; border-color: #d8e1ed; }
+body.mimi .ai-profile-card, body.mimi .model-dialog .ai-profile-card { color: #5e493e; background: #fff8f2; border-color: #efdfd4; }
+body.light .ai-profile-card .eyebrow, body.light .model-dialog .ai-profile-card .eyebrow { color: #63748d; }
+body.mimi .ai-profile-card .eyebrow, body.mimi .model-dialog .ai-profile-card .eyebrow { color: #9a6547; }

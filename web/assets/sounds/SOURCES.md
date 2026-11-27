@@ -23,3 +23,12 @@ small groups, groups, and large groups have distinct audible feedback.
 
 Freesound marks the source CC0 1.0. The 0.455-second clip is used as an
 optional placement sound and is bundled as an MP3 preview.
+
+
+# Additional cat voices
+
+- `cat_meow_2.mp3` is a short preview of **Cat meow 2** by MBPL: <https://freesound.org/people/MBPL/sounds/668816/>.
+- `cat_meow_3.mp3` is a trimmed preview of **cat meow short** by skymary: <https://freesound.org/people/skymary/sounds/412017/>.
+- `cat_capture_yowl.mp3` is a short preview of **Angry Cat Meow** by bevibeldesign: <https://freesound.org/people/bevibeldesign/sounds/350411/>.
+
+All three Freesound recordings are marked CC0 1.0. The yowl is played for captured stones when a cat placement sound is selected; larger captures repeat the yowl in short groups.

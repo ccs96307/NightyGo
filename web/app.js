@@ -97,6 +97,13 @@ for(const [locale, values] of Object.entries({
   ja: {stonePreview:'素材を選ぶとプレビューします', desktopDownload:'デスクトップ版をダウンロード', gpuSecureRequired:'WebGPUにはHTTPSが必要です', gpuSecureHint:'HTTPSまたはlocalhostで開いてください。GitHub PagesはHTTPSを提供します。', gpuUnsupportedHint:'このブラウザーではWebGPUを利用できません。最新版のChrome／Edgeとハードウェアアクセラレーションをお試しください。', gpuAdapterHint:'利用可能なGPUが見つかりません。ハードウェアアクセラレーション、GPUドライバー、ブラウザーポリシーを確認してください。'},
   ko: {stonePreview:'소재를 선택하면 미리 볼 수 있습니다', desktopDownload:'데스크톱 버전 다운로드', gpuSecureRequired:'WebGPU에는 HTTPS가 필요합니다', gpuSecureHint:'HTTPS 또는 localhost로 접속하세요. GitHub Pages는 HTTPS를 제공합니다.', gpuUnsupportedHint:'이 브라우저에서는 WebGPU를 사용할 수 없습니다. 최신 Chrome／Edge와 하드웨어 가속을 사용하세요.', gpuAdapterHint:'사용 가능한 GPU를 찾지 못했습니다. 하드웨어 가속, GPU 드라이버, 브라우저 정책을 확인하세요.'}
 })) Object.assign(I18N[locale], values);
+for (const [locale, values] of Object.entries({
+  'zh-Hant': {mimiMode:'Mimi 模式', mimiBoard:'Mimi 奶油爪印', mimiStones:'Mimi 黑白貓'},
+  'zh-Hans': {mimiMode:'Mimi 模式', mimiBoard:'Mimi 奶油爪印', mimiStones:'Mimi 黑白猫'},
+  en: {mimiMode:'Mimi Mode', mimiBoard:'Mimi · Cream & Paws', mimiStones:'Mimi · Cat Stones'},
+  ja: {mimiMode:'Mimiモード', mimiBoard:'Mimi · クリームと肉球', mimiStones:'Mimi · 黒猫と白猫'},
+  ko: {mimiMode:'Mimi 모드', mimiBoard:'Mimi · 크림과 발바닥', mimiStones:'Mimi · 검은 고양이와 흰 고양이'}
+})) Object.assign(I18N[locale], values);
 let language = initialLanguage();
 const savedPrefs = readStore('ng.preferences', null);
 let prefs = Object.assign({board:savedPrefs?'wood':'night',stones:savedPrefs?'classic':'moon',size:19,font:15,sound:'01',motion:'full',theme:'dark'}, savedPrefs || {});
@@ -398,11 +405,13 @@ function drawBoard() {
         width, y + Math.sin(index * 1.4) * width * .008);
       ctx.stroke();
     }
+  } else if (prefs.board === 'mimi') {
+    ctx.drawImage(getBoardTexture('mimi'), 0, 0, width, height);
   } else {
     ctx.drawImage(getBoardTexture(prefs.board), 0, 0, width, height);
     drawAnimatedSky(ctx, width, elapsed);
   }
-  const lineColor = prefs.board === 'wood' ? 'rgba(64,44,25,.85)' : 'rgba(203,219,245,.68)';
+  const lineColor = prefs.board === 'wood' ? 'rgba(64,44,25,.85)' : prefs.board === 'mimi' ? 'rgba(105,61,39,.82)' : 'rgba(203,219,245,.68)';
   ctx.strokeStyle = lineColor;
   ctx.lineWidth = Math.max(1.2, width * .0015);
   for (let index = 0; index < size; index++) {
@@ -412,9 +421,15 @@ function drawBoard() {
   }
   if ([9, 13, 19].includes(size)) {
     const stars = size === 19 ? [3, 9, 15] : size === 13 ? [3, 6, 9] : [2, 4, 6];
-    ctx.fillStyle = lineColor;
+    const dotRadius = Math.max(width * .0055, step * .105);
+    const dotColor = prefs.board === 'wood' ? '#543919' : prefs.board === 'mimi' ? '#a54f2d' : '#e5efff';
+    const haloColor = prefs.board === 'wood' ? 'rgba(255,240,204,.86)' : prefs.board === 'mimi' ? 'rgba(255,248,235,.94)' : 'rgba(12,20,42,.9)';
     for (const x of stars) for (const y of stars) {
-      ctx.beginPath(); ctx.arc(pad + x * step, pad + y * step, Math.max(2.4, width * .004), 0, Math.PI * 2); ctx.fill();
+      const px = pad + x * step, py = pad + y * step;
+      ctx.fillStyle = haloColor;
+      ctx.beginPath(); ctx.arc(px, py, dotRadius * 1.38, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = dotColor;
+      ctx.beginPath(); ctx.arc(px, py, dotRadius * .76, 0, Math.PI * 2); ctx.fill();
     }
   }
   if (ownershipMap?.length === size * size) {
@@ -429,7 +444,7 @@ function drawBoard() {
   if (previewValid && pointer.touchPreview) {
     const x = pad + pointer.x * step, y = pad + pointer.y * step;
     ctx.save();
-    ctx.strokeStyle = prefs.board === 'wood' ? 'rgba(38, 48, 61, .82)' : 'rgba(238, 246, 255, .9)';
+    ctx.strokeStyle = ['wood', 'mimi'].includes(prefs.board) ? 'rgba(73, 47, 35, .86)' : 'rgba(238, 246, 255, .9)';
     ctx.lineWidth = Math.max(1.5, width * .0024);
     ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(width - pad, y);
     ctx.moveTo(x, pad); ctx.lineTo(x, height - pad); ctx.stroke();
@@ -462,7 +477,7 @@ function getBoardTexture(material) {
   const texture = document.createElement('canvas');
   texture.width = texture.height = size;
   const ctx = texture.getContext('2d');
-  let seed = material === 'starfield' ? 951 : 461;
+  let seed = material === 'starfield' ? 951 : material === 'mimi' ? 842 : 461;
   const random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
   const paintNebula = (x, y, color) => {
     const [red, green, blue] = color;
@@ -471,7 +486,26 @@ function getBoardTexture(material) {
     glow.addColorStop(1, `rgba(${red},${green},${blue},0)`);
     ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(x, y, 170, 0, Math.PI * 2); ctx.fill();
   };
-  if (material === 'starfield') {
+  if (material === 'mimi') {
+    const cream = ctx.createLinearGradient(0, 0, size, size);
+    cream.addColorStop(0, '#fff4e1'); cream.addColorStop(.48, '#f4dfc4'); cream.addColorStop(1, '#f8e9d4');
+    ctx.fillStyle = cream; ctx.fillRect(0, 0, size, size);
+    const glow = ctx.createRadialGradient(size * .5, size * .48, size * .08, size * .5, size * .48, size * .72);
+    glow.addColorStop(0, 'rgba(255,255,255,.05)'); glow.addColorStop(1, 'rgba(225,137,83,.22)');
+    ctx.fillStyle = glow; ctx.fillRect(0, 0, size, size);
+    ctx.strokeStyle = 'rgba(181,111,66,.07)'; ctx.lineWidth = 1;
+    for (let index = 0; index < 42; index++) {
+      const y = (index * 37) % size;
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.bezierCurveTo(size * .3, y + Math.sin(index) * 4, size * .7, y + Math.cos(index) * 5, size, y); ctx.stroke();
+    }
+    const paw = (x, y, scale) => {
+      ctx.save(); ctx.translate(x, y); ctx.scale(scale, scale); ctx.fillStyle = 'rgba(203,126,79,.14)';
+      ctx.beginPath(); ctx.ellipse(0, 4, 7, 5.5, 0, 0, Math.PI * 2); ctx.fill();
+      for (const [toeX, toeY] of [[-7,-4],[-2,-8],[4,-8],[9,-4]]) { ctx.beginPath(); ctx.arc(toeX, toeY, 2.6, 0, Math.PI * 2); ctx.fill(); }
+      ctx.restore();
+    };
+    for (const [x, y, scale] of [[38,44,.8],[470,66,.7],[72,458,.72],[445,430,.85],[255,42,.55],[266,474,.56]]) paw(x,y,scale);
+  } else if (material === 'starfield') {
     ctx.fillStyle = '#080d22'; ctx.fillRect(0, 0, size, size);
     paintNebula(120, 175, [68, 43, 136]); paintNebula(360, 345, [21, 75, 114]);
     const radii = [.6, .6, .6, 1, 1, 1, 1.6, 2.2];
@@ -554,7 +588,7 @@ function drawAnimatedSky(ctx, side, elapsed) {
   }
 }
 function scheduleAmbientFrame() {
-  if (prefs.board === 'wood' || prefs.motion === 'off' || document.visibilityState !== 'visible') {
+  if (['wood', 'mimi'].includes(prefs.board) || prefs.motion === 'off' || document.visibilityState !== 'visible') {
     if (animationFrame) cancelAnimationFrame(animationFrame);
     if (animationTimer) clearTimeout(animationTimer);
     animationFrame = 0; animationTimer = 0;
@@ -566,7 +600,44 @@ function scheduleAmbientFrame() {
     animationTimer = setTimeout(() => { animationTimer = 0; drawBoard(); }, 100);
   }
 }
+function paintMimiCatStone(ctx, x, y, radius, color) {
+  const black = color === BLACK;
+  const face = ctx.createRadialGradient(x - radius * .34, y - radius * .44, radius * .08, x, y, radius * 1.12);
+  if (black) { face.addColorStop(0, '#636775'); face.addColorStop(.38, '#252936'); face.addColorStop(1, '#090b10'); }
+  else { face.addColorStop(0, '#fff'); face.addColorStop(.58, '#fffaf1'); face.addColorStop(1, '#e8d8c9'); }
+  ctx.save();
+  ctx.shadowColor = 'rgba(47, 31, 24, .42)'; ctx.shadowBlur = radius * .28; ctx.shadowOffsetY = radius * .17;
+  ctx.fillStyle = face;
+  ctx.beginPath();
+  ctx.moveTo(x - radius * .78, y - radius * .35);
+  ctx.lineTo(x - radius * .98, y - radius * 1.03);
+  ctx.lineTo(x - radius * .31, y - radius * .76);
+  ctx.quadraticCurveTo(x, y - radius * 1.04, x + radius * .31, y - radius * .76);
+  ctx.lineTo(x + radius * .98, y - radius * 1.03);
+  ctx.lineTo(x + radius * .78, y - radius * .35);
+  ctx.quadraticCurveTo(x + radius * .82, y + radius * .68, x, y + radius * .82);
+  ctx.quadraticCurveTo(x - radius * .82, y + radius * .68, x - radius * .78, y - radius * .35);
+  ctx.closePath(); ctx.fill();
+  ctx.shadowColor = 'transparent';
+  ctx.strokeStyle = black ? 'rgba(255,255,255,.28)' : 'rgba(115,79,58,.48)';
+  ctx.lineWidth = Math.max(.7, radius * .055); ctx.stroke();
+  const eyeColor = black ? '#d9efaa' : '#9d663f';
+  const eyeY = y - radius * .12, eyeX = radius * .31, eyeR = Math.max(.8, radius * .09);
+  ctx.fillStyle = eyeColor;
+  for (const direction of [-1, 1]) {
+    ctx.beginPath(); ctx.ellipse(x + direction * eyeX, eyeY, eyeR, eyeR * 1.3, direction * -.12, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#20202a'; ctx.beginPath(); ctx.ellipse(x + direction * eyeX, eyeY, eyeR * .28, eyeR * 1.1, 0, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = eyeColor;
+  }
+  ctx.fillStyle = '#d98e91';
+  ctx.beginPath(); ctx.moveTo(x - radius * .1, y + radius * .12); ctx.lineTo(x + radius * .1, y + radius * .12); ctx.lineTo(x, y + radius * .23); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = black ? 'rgba(255,245,231,.72)' : 'rgba(105,72,57,.58)'; ctx.lineWidth = Math.max(.55, radius * .035); ctx.lineCap = 'round';
+  for (const side of [-1, 1]) for (const offset of [-.03, .14]) {
+    ctx.beginPath(); ctx.moveTo(x + side * radius * .34, y + radius * (.16 + offset)); ctx.lineTo(x + side * radius * .9, y + radius * (.04 + offset)); ctx.stroke();
+  }
+  ctx.restore();
+}
 function paintStone(ctx, x, y, radius, color) {
+  if (prefs.stones === 'mimi') { paintMimiCatStone(ctx, x, y, radius, color); return; }
   const gradient = ctx.createRadialGradient(x - radius * .32, y - radius * .4, radius * .06, x, y, radius * 1.15);
   const stops = color === BLACK
     ? prefs.stones === 'star' ? [[0, '#96b9ff'], [.25, '#344a88'], [.72, '#10162d'], [1, '#050812']]
@@ -623,7 +694,7 @@ function paintSphereLighting(ctx, x, y, radius) {
   ctx.beginPath(); ctx.arc(x, y, radius * .78, -38 * Math.PI / 180, -143 * Math.PI / 180, true); ctx.stroke();
   ctx.restore();
 }
-function drawMarkups(ctx,pad,space){const props=current?.props||{},n=boardSize(),ink=prefs.board==='wood'?'#3d2541':'#e5dcff';ctx.save();ctx.lineWidth=Math.max(1.5,space*.07);ctx.strokeStyle=ink;ctx.fillStyle=ink;for(const key of ['LN','AR'])for(const value of props[key]||[]){try{const [from,to]=value.split(':');const [x1,y1]=decodePoint(from,n),[x2,y2]=decodePoint(to,n);const a={x:pad+x1*space,y:pad+y1*space},b={x:pad+x2*space,y:pad+y2*space};ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();if(key==='AR'){const angle=Math.atan2(b.y-a.y,b.x-a.x),r=space*.24;ctx.beginPath();ctx.moveTo(b.x,b.y);ctx.lineTo(b.x-r*Math.cos(angle-.5),b.y-r*Math.sin(angle-.5));ctx.lineTo(b.x-r*Math.cos(angle+.5),b.y-r*Math.sin(angle+.5));ctx.closePath();ctx.fill()}}catch{}}
+function drawMarkups(ctx,pad,space){const props=current?.props||{},n=boardSize(),ink=['wood','mimi'].includes(prefs.board)?'#70432f':'#e5dcff';ctx.save();ctx.lineWidth=Math.max(1.5,space*.07);ctx.strokeStyle=ink;ctx.fillStyle=ink;for(const key of ['LN','AR'])for(const value of props[key]||[]){try{const [from,to]=value.split(':');const [x1,y1]=decodePoint(from,n),[x2,y2]=decodePoint(to,n);const a={x:pad+x1*space,y:pad+y1*space},b={x:pad+x2*space,y:pad+y2*space};ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();if(key==='AR'){const angle=Math.atan2(b.y-a.y,b.x-a.x),r=space*.24;ctx.beginPath();ctx.moveTo(b.x,b.y);ctx.lineTo(b.x-r*Math.cos(angle-.5),b.y-r*Math.sin(angle-.5));ctx.lineTo(b.x-r*Math.cos(angle+.5),b.y-r*Math.sin(angle+.5));ctx.closePath();ctx.fill()}}catch{}}
  for(const key of ['TR','SQ','CR','MA','LB'])for(const value of props[key]||[]){try{const coordinate=key==='LB'?value.slice(0,2):value,[x,y]=decodePoint(coordinate,n),cx=pad+x*space,cy=pad+y*space,r=space*.22;ctx.beginPath();if(key==='TR'){ctx.moveTo(cx,cy-r);ctx.lineTo(cx-r,cy+r);ctx.lineTo(cx+r,cy+r);ctx.closePath();ctx.stroke()}else if(key==='SQ'){ctx.strokeRect(cx-r,cy-r,r*2,r*2)}else if(key==='CR'){ctx.arc(cx,cy,r,0,Math.PI*2);ctx.stroke()}else if(key==='MA'){ctx.moveTo(cx-r,cy-r);ctx.lineTo(cx+r,cy+r);ctx.moveTo(cx+r,cy-r);ctx.lineTo(cx-r,cy+r);ctx.stroke()}else{ctx.font=`600 ${space*.26}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(value.slice(3)||'A',cx,cy)}}catch{}}ctx.restore()}
 function addMarkup(x,y){const key=$('#markup-tool').value;if(key==='none')return false;const point=String.fromCharCode(97+x)+String.fromCharCode(97+y),property=current.props[key]||[],label=$('#markup-label').value.trim()||'A';if(key==='LN'||key==='AR'){if(!pendingLinePoint){pendingLinePoint=point;toast(tr('lineSecondPoint'));return true}const value=`${pendingLinePoint}:${point}`;pendingLinePoint=null;property.push(value);current.props[key]=property;dirty=true;refresh();return true}const value=key==='LB'?`${point}:${label}`:point,index=property.findIndex(v=>key==='LB'?v.slice(0,2)===point:v===point);if(index>=0)property.splice(index,1);else property.push(value);if(property.length)current.props[key]=property;else delete current.props[key];dirty=true;refresh();return true}
 function boardPoint(clientX,clientY){const r=$('#go-board').getBoundingClientRect(),n=boardSize(),pad=r.width*.063,space=(r.width-pad*2)/(n-1);const x=Math.round((clientX-r.left-pad)/space),y=Math.round((clientY-r.top-pad)/space);return {x,y,distance:Math.hypot(clientX-r.left-(pad+x*space),clientY-r.top-(pad+y*space)),n}}
@@ -632,7 +703,8 @@ function playCapture(count){if(!count)return;const key=count===1?'capture_single
 let toastTimer;function toast(message){const el=$('#toast');el.textContent=message;el.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),2300)}
 function refreshGpuLanguage(){const tag=$('#gpu-status');tag.className='status-tag';if(gpuReason==='checking'){tag.textContent=tr('gpuChecking');tag.title='';return}if(gpuReason==='secure'){tag.textContent=tr('gpuSecureRequired');tag.title=tr('gpuSecureHint');return}if(gpuReason==='unsupported'){tag.textContent=tr('gpuMissing');tag.title=tr('gpuUnsupportedHint');return}if(gpuReason==='missingAdapter'){tag.textContent=tr('gpuAdapterMissing');const platform=(navigator.userAgentData?.platform||navigator.platform||'').toLowerCase();tag.title=platform.includes('linux')&&navigator.userAgent.includes('Chrome')?tr('gpuLinuxAdapterHint'):tr('gpuAdapterHint');return}if(gpuReason==='error'){tag.textContent=tr('gpuMissing');tag.title=tr('gpuAdapterErrorHint',{error:gpuError});return}if(engineReady){tag.textContent=tr(modelBackendGpu?'engineWebGpu':'engineCpu');tag.classList.add('ready');return}tag.textContent=tr('gpuAvailable');tag.classList.add('ready');tag.title=tr('enginePending')}
 async function checkGpu(){gpuReason='checking';gpuState='unknown';refreshGpuLanguage();if(!globalThis.isSecureContext){gpuState='unavailable';gpuReason='secure';refreshGpuLanguage();refreshAiSetup();return}if(!navigator.gpu){gpuState='unavailable';gpuReason='unsupported';refreshGpuLanguage();refreshAiSetup();return}try{const adapter=await navigator.gpu.requestAdapter();if(!adapter){gpuState='unavailable';gpuReason='missingAdapter';refreshGpuLanguage();refreshAiSetup();return}gpuState='available';gpuReason='available';refreshGpuLanguage();refreshAiSetup()}catch(error){gpuState='unavailable';gpuReason='error';gpuError=error.message||String(error);refreshGpuLanguage();refreshAiSetup()}}
-function applyPrefs(){document.documentElement.style.setProperty('--font',`${prefs.font}px`);document.body.classList.toggle('light',prefs.theme==='light');$('#theme').value=prefs.theme;$('#board-material').value=prefs.board;$('#stone-material').value=prefs.stones;const activeSize=root?boardSize():prefs.size;if(!Array.from($('#board-size').options).some(o=>Number(o.value)===activeSize))$('#board-size').add(new Option(activeSize,activeSize));$('#board-size').value=String(activeSize);$('#font-size').value=prefs.font;$('#font-value').value=`${prefs.font} px`;$('#placement-sound').value=prefs.sound;$('#motion').value=prefs.motion;drawBoard();drawStonePreviews()}
+function applyInterfaceTheme(theme){document.body.classList.toggle('light',theme==='light');document.body.classList.toggle('mimi',theme==='mimi')}
+function applyPrefs(){document.documentElement.style.setProperty('--font',`${prefs.font}px`);applyInterfaceTheme(prefs.theme);$('#theme').value=prefs.theme;$('#board-material').value=prefs.board;$('#stone-material').value=prefs.stones;const activeSize=root?boardSize():prefs.size;if(!Array.from($('#board-size').options).some(o=>Number(o.value)===activeSize))$('#board-size').add(new Option(activeSize,activeSize));$('#board-size').value=String(activeSize);$('#font-size').value=prefs.font;$('#font-value').value=`${prefs.font} px`;$('#placement-sound').value=prefs.sound;$('#motion').value=prefs.motion;drawBoard();drawStonePreviews()}
 function drawStonePreviews(){for(const [selector,color] of [['#stone-preview-black',BLACK],['#stone-preview-white',WHITE]]){const canvas=$(selector);if(!canvas)continue;const context=canvas.getContext('2d');context.clearRect(0,0,canvas.width,canvas.height);context.save();context.scale(canvas.width/96,canvas.height/72);paintStone(context,48,36,25,color);context.restore()}}
 function openSettings(){const d=$('#settings-dialog');d.dataset.before=JSON.stringify(prefs);applyPrefs();d.showModal()}
 function restoreSettings(){const before=$('#settings-dialog').dataset.before;if(before){prefs=JSON.parse(before);applyPrefs()}}
@@ -643,7 +715,7 @@ function bind(){
  $('#save-sgf').onclick=downloadSgf;$('#send-mail').onclick=openMailDialog;$('#mail-address').oninput=e=>{if(e.target.checkValidity()&&e.target.value.trim())localStorage.setItem('ng.mail-address',e.target.value.trim())};$('#open-mail').onclick=sendGameMail;$('#score-game').onclick=scoreGame;$('#undo').onclick=previous;$('#redo').onclick=()=>next(0);$('#previous').onclick=previous;$('#next').onclick=()=>next(0);$('#first').onclick=()=>navigateTo(root);$('#last').onclick=()=>{let n=root;while(n.children?.length)n=n.children[0];navigateTo(n)};$('#pass').onclick=()=>appendMove(0,0,true);$('#main-line').onclick=()=>{$('#main-line').classList.toggle('active');refreshTree()};$('#collapse-tree').onclick=()=>{treePan.x=0;treePan.y=0;$('#tree-scroll').scrollTo({left:0,top:0,behavior:'smooth'});refreshTree()};bindTreePan();$('#review-game').onclick=reviewGame;$('#check-gpu').onclick=checkGpu;$('#model-center').onclick=openModelCenter;document.querySelectorAll('[data-model-url]').forEach(button=>button.onclick=()=>downloadOfficialModel(button.dataset.modelUrl,button.dataset.modelName).catch(()=>{}));$('#model-file').onchange=e=>importModel(e.target.files[0]).catch(err=>toast(err.message));$('#save-ai-config').onclick=downloadAiConfig;$('#export-ai-config').onclick=()=>{const config=storedAiConfig();if(!config)return;const blob=new Blob([JSON.stringify(config,null,2)+'\n'],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='nightygo-ai-profile.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)};$('#ai-config-file').onchange=e=>importAiConfig(e.target.files[0]).catch(err=>toast(err.message));$('#search-visits').onchange=refreshAiSetup;$('#search-time').onchange=refreshAiSetup;$('#load-model').onclick=()=>loadSelectedModel().catch(err=>toast(err.message));$('#analyze-position').onclick=analyzePosition;$('#play-ai').onclick=playAiMove;
  $('#markup-tool').onchange=e=>{pendingLinePoint=null;$('#markup-label').disabled=e.target.value!=='LB';drawBoard()};$('#markup-label').disabled=true;const canvas=$('#go-board');canvas.onpointermove=e=>{const p=boardPoint(e.clientX,e.clientY);pointer=p.distance<canvas.getBoundingClientRect().width*.055?{x:p.x,y:p.y,touchPreview:e.pointerType==='touch'}:null;drawBoard()};canvas.onpointerleave=e=>{if(e.pointerType!=='touch'){pointer=null;drawBoard()}};canvas.onpointerdown=e=>{if(e.button!==0)return;const p=boardPoint(e.clientX,e.clientY);if(p.distance>canvas.getBoundingClientRect().width*.055)return;if(addMarkup(p.x,p.y))return;if(e.pointerType==='touch'){const samePoint=touchPreviewAnchor?.x===p.x&&touchPreviewAnchor?.y===p.y;if(!samePoint){touchPreviewAnchor={x:p.x,y:p.y};pointer={x:p.x,y:p.y,touchPreview:true};drawBoard();return}touchPreviewAnchor=null;pointer=null;drawBoard()}try{const ko=last&&!last.pass&&positionHistory.length>1?positionHistory.at(-2):null;const result=applyMove(board,toPlay,p.x,p.y,true,ko);const cap=result.captured.length;appendMove(p.x,p.y);if(cap)playCapture(cap)}catch(err){toast(err.message||tr('illegal'))}};canvas.onkeydown=e=>{if(e.key==='ArrowLeft')previous();if(e.key==='ArrowRight')next(0)};window.addEventListener('resize',()=>{resizeCanvas();refreshTree()});new ResizeObserver(()=>{resizeCanvas();refreshTree()}).observe($('#board-wrap'));
  $('#save-comment').onclick=()=>{updateComment($('#comment').value);toast(tr('commentSaved'))};$('#edit-info').onclick=()=>{for(const [id,key] of [['edit-black','PB'],['edit-white','PW'],['edit-event','EV'],['edit-result','RE'],['edit-komi','KM']])$('#'+id).value=root.props[key]?.[0]||'';$('#info-dialog').showModal()};$('#apply-info').onclick=()=>{for(const [id,key] of [['edit-black','PB'],['edit-white','PW'],['edit-event','EV'],['edit-result','RE'],['edit-komi','KM']])setProp(key,$('#'+id).value.trim());const handicap=Math.max(0,Math.min(9,Number($('#edit-handicap').value)||0));if(path.length>1&&handicap!==Number(root.props.HA?.[0]||0)){toast(tr('handicapBeforeStart'));return}setProp('HA',handicap?String(handicap):'');if(path.length===1){if(handicap)root.props.AB=handicapPoints(boardSize(),handicap);else delete root.props.AB;if(handicap)root.props.PL=['W'];else delete root.props.PL;rebuild();refresh()}toast(tr('metadataSaved'))};$('#library-search').oninput=refreshLibrary;
- $('#font-size').oninput=e=>{$('#font-value').value=`${e.target.value} px`;document.documentElement.style.setProperty('--font',`${e.target.value}px`)};$('#preview-sound').onclick=()=>playSound($('#placement-sound').value);$('#theme').onchange=e=>document.body.classList.toggle('light',e.target.value==='light');$('#motion').onchange=e=>{prefs.motion=e.target.value;drawBoard()};$('#board-material').onchange=e=>{prefs.board=e.target.value;drawBoard()};$('#stone-material').onchange=e=>{prefs.stones=e.target.value;drawBoard();drawStonePreviews()};$('#save-settings').onclick=()=>{const newSize=Number($('#board-size').value);prefs={...prefs,theme:$('#theme').value,board:$('#board-material').value,stones:$('#stone-material').value,size:newSize,font:Number($('#font-size').value),sound:$('#placement-sound').value,motion:$('#motion').value};if(newSize!==boardSize()){prefs.size=newSize;setupNew(newSize);toast(tr('settingsApplied'))}else{writeStore('ng.preferences',prefs);applyPrefs();toast(tr('settingsApplied'))}};$('#settings-dialog').addEventListener('close',()=>{if($('#settings-dialog').returnValue!=='default')restoreSettings();else{prefs={...prefs,theme:$('#theme').value,board:$('#board-material').value,stones:$('#stone-material').value,font:Number($('#font-size').value),sound:$('#placement-sound').value,motion:$('#motion').value};writeStore('ng.preferences',prefs);applyPrefs()}});
+ $('#font-size').oninput=e=>{$('#font-value').value=`${e.target.value} px`;document.documentElement.style.setProperty('--font',`${e.target.value}px`)};$('#preview-sound').onclick=()=>playSound($('#placement-sound').value);$('#theme').onchange=e=>applyInterfaceTheme(e.target.value);$('#motion').onchange=e=>{prefs.motion=e.target.value;drawBoard()};$('#board-material').onchange=e=>{prefs.board=e.target.value;drawBoard()};$('#stone-material').onchange=e=>{prefs.stones=e.target.value;drawBoard();drawStonePreviews()};$('#save-settings').onclick=()=>{const newSize=Number($('#board-size').value);prefs={...prefs,theme:$('#theme').value,board:$('#board-material').value,stones:$('#stone-material').value,size:newSize,font:Number($('#font-size').value),sound:$('#placement-sound').value,motion:$('#motion').value};if(newSize!==boardSize()){prefs.size=newSize;setupNew(newSize);toast(tr('settingsApplied'))}else{writeStore('ng.preferences',prefs);applyPrefs();toast(tr('settingsApplied'))}};$('#settings-dialog').addEventListener('close',()=>{if($('#settings-dialog').returnValue!=='default')restoreSettings();else{prefs={...prefs,theme:$('#theme').value,board:$('#board-material').value,stones:$('#stone-material').value,font:Number($('#font-size').value),sound:$('#placement-sound').value,motion:$('#motion').value};writeStore('ng.preferences',prefs);applyPrefs()}});
  $('#install-app').onclick=async()=>{if(pendingInstall){pendingInstall.prompt();pendingInstall=null;$('#install-app').hidden=true}};window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();pendingInstall=e;$('#install-app').hidden=false});window.addEventListener('beforeunload',e=>{if(root&&dirty){writeStore('ng.autosave',serializeCollection());e.preventDefault();e.returnValue=''}});
 }
 function init(){restorePanelOrder();applyLanguage();applyPrefs();drawStonePreviews();bind();bindPanelReordering();const auto=localStorage.getItem('ng.autosave');if(auto){try{const trees=parseSgf(auto);collectionTrees=trees;const tree=trees[0];root=tree;current=root;path=[root];while(current.children?.length){current=current.children[0];path.push(current)}dirty=true}catch{setupNew()}}else setupNew();refresh();refreshModels().then(models=>{const remembered=localStorage.getItem('ng.last-model-id');if(remembered&&models.some(model=>model.id===remembered))loadSelectedModel({automatic:true,id:remembered}).catch(error=>{console.warn('Could not restore the last KataGo model',error);toast(error.message)})}).catch(error=>console.warn('Could not read local models',error));checkGpu();if('serviceWorker'in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('sw.js').catch(()=>{});}

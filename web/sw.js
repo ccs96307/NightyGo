@@ -1,6 +1,6 @@
-const CACHE = 'nightygo-web-v20';
+const CACHE = 'nightygo-web-v21';
 const ROOT = new URL('./', self.location.href);
-const FILES = ['./', './index.html', './styles.css', './theme.css?v=20', './app.js', './ai-config.js', './placement-input.js', './sgf-core.js', './engine-worker.js', './assets/engine/kataeval.js', './assets/engine/kataeval.wasm', './manifest.webmanifest', './icon.svg',
+const FILES = ['./', './index.html', './styles.css', './theme.css?v=21', './app.js', './ai-config.js', './placement-input.js', './sgf-core.js', './engine-worker.js', './assets/engine/kataeval.js', './assets/engine/kataeval.wasm', './manifest.webmanifest', './icon.svg',
   './assets/sounds/go_stone_01.wav', './assets/sounds/go_stone_02.wav', './assets/sounds/go_stone_03.wav',
   './assets/sounds/go_stone_04.wav', './assets/sounds/go_stone_05.wav', './assets/sounds/capture_single.wav',
   './assets/sounds/capture_small_group.wav', './assets/sounds/capture_group.wav', './assets/sounds/capture_large_group.wav'];

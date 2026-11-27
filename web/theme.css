@@ -571,3 +571,21 @@ body.light .model-dialog-actions { background: rgba(247, 249, 252, .98); }
   .model-dialog-actions { padding: 12px 14px max(14px, env(safe-area-inset-bottom)); }
   .model-dialog-actions .button { flex: 1; min-width: 0; }
 }
+
+/* Restoring a saved engine must not block page controls after refresh. */
+.loading-modal.background-load {
+  position: fixed;
+  inset: auto 20px 20px auto;
+  width: min(390px, calc(100vw - 40px));
+  max-height: min(240px, 42dvh);
+  margin: 0;
+  pointer-events: none;
+  border-color: rgba(138, 240, 211, .28);
+  box-shadow: 0 18px 52px rgba(0, 0, 0, .34);
+}
+.loading-modal.background-load .loading-content { padding: 14px 16px; }
+.loading-modal.background-load .loading-content h2 { font-size: 1rem; }
+.loading-modal.background-load .loading-content p { font-size: .8rem; }
+@media (max-width: 600px) {
+  .loading-modal.background-load { inset: auto 12px max(12px, env(safe-area-inset-bottom)) 12px; width: auto; }
+}

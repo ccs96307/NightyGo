@@ -211,7 +211,42 @@ function updateCandidateSearch(data) {
 }
 function gameKomi() { return Number(root.props.KM?.[0] ?? 6.5); }
 function movesForPath(nodes=path){const rootProps=nodes[0]?.props||{};if(rootProps.AW||rootProps.AE||nodes.slice(1).some(n=>n.props?.AB||n.props?.AW||n.props?.AE))throw Error(tr('unsupportedSetup'));const setup=expandSetup(rootProps.AB,boardSize());if(setup.length===1)throw Error(tr('unsupportedHandicap'));return [...setup.map(([x,y])=>({loc:y*boardSize()+x,color:BLACK})),...nodes.flatMap(node=>{const p=node.props||{};const color=p.B?BLACK:p.W?WHITE:null;if(!color)return[];const value=(p.B||p.W)[0];return [{loc:isSgfPass(value, boardSize()) ? -1 : (value.charCodeAt(1)-97)*boardSize()+value.charCodeAt(0)-97,color}]})]}
-async function refreshModels(){const models=await listModels();modelAvailable=models.length>0;const select=$('#model-select');select.innerHTML=models.length?models.map(m=>`<option value="${escapeHtml(m.id)}">${escapeHtml(m.name)} · ${(m.size/1048576).toFixed(1)} MB</option>`).join(''):`<option value="">${tr('noModel')}</option>`;const remembered=localStorage.getItem('ng.last-model-id');if(activeModelId&&models.some(m=>m.id===activeModelId))select.value=activeModelId;else if(remembered&&models.some(m=>m.id===remembered))select.value=remembered;else if(models.length)select.value=models[0].id;const memory=navigator.deviceMemory||4;const tier=memory<4?0:memory<8?1:2;const advice={'zh-Hant':`裝置記憶體粗估 ${memory} GB，建議${['輕量','平衡','高強度'][tier]}模型。此數字僅為瀏覽器估值；棋盤尺寸與可用 GPU 記憶體也會影響載入。模型只存在本機瀏覽器。`,'zh-Hans':`设备内存粗估 ${memory} GB，建议${['轻量','均衡','高强度'][tier]}模型。该数字仅为浏览器估值；棋盘大小和 GPU 可用内存也会影响加载。模型只保存在本地浏览器。`,en:`Estimated device memory: ${memory} GB. Suggested tier: ${['light','balanced','strong'][tier]}. This browser estimate is approximate; board size and GPU memory also affect model loading. Models stay in this browser.`,ja:`端末メモリーの推定は ${memory} GB。おすすめ：${['軽量','標準','高性能'][tier]}モデル。ブラウザーによる概算で、盤サイズとGPUメモリーも読み込みに影響します。モデルはこのブラウザーに保存されます。`,ko:`기기 메모리 추정치 ${memory} GB. 추천 모델: ${['경량','균형','고성능'][tier]}. 브라우저 추정값이며 바둑판 크기와 GPU 메모리도 로딩에 영향을 줍니다. 모델은 이 브라우저에 저장됩니다.`};$('#model-advice').textContent=advice[language]||advice.en;refreshAiSetup();return models}
+async function refreshModels() {
+  const models = await listModels();
+  modelAvailable = models.length > 0;
+  const select = $('#model-select');
+  select.innerHTML = models.length
+    ? models.map(m => `<option value="${escapeHtml(m.id)}">${escapeHtml(m.name)} · ${(m.size / 1048576).toFixed(1)} MB</option>`).join('')
+    : `<option value="">${tr('noModel')}</option>`;
+  const remembered = localStorage.getItem('ng.last-model-id');
+  if (activeModelId && models.some(m => m.id === activeModelId)) select.value = activeModelId;
+  else if (remembered && models.some(m => m.id === remembered)) select.value = remembered;
+  else if (models.length) select.value = models[0].id;
+
+  const memory = navigator.deviceMemory;
+  let advice;
+  if (Number.isFinite(memory) && memory > 0) {
+    const tier = memory < 4 ? 0 : memory < 8 ? 1 : 2;
+    advice = {
+      'zh-Hant': `裝置記憶體粗估 ${memory} GB，建議${['輕量','平衡','高強度'][tier]}模型。此數字僅為瀏覽器估值；棋盤尺寸與可用 GPU 記憶體也會影響載入。模型只存在本機瀏覽器。`,
+      'zh-Hans': `设备内存粗估 ${memory} GB，建议${['轻量','均衡','高强度'][tier]}模型。该数字仅为浏览器估值；棋盘大小和 GPU 可用内存也会影响加载。模型只保存在本地浏览器。`,
+      en: `Estimated device memory: ${memory} GB. Suggested tier: ${['light','balanced','strong'][tier]}. This browser estimate is approximate; board size and GPU memory also affect model loading. Models stay in this browser.`,
+      ja: `端末メモリーの推定は ${memory} GB。おすすめ：${['軽量','標準','高性能'][tier]}モデル。ブラウザーによる概算で、盤サイズとGPUメモリーも読み込みに影響します。モデルはこのブラウザーに保存されます。`,
+      ko: `기기 메모리 추정치 ${memory} GB. 추천 모델: ${['경량','균형','고성능'][tier]}. 브라우저 추정값이며 바둑판 크기와 GPU 메모리도 로딩에 영향을 줍니다. 모델은 이 브라우저에 저장됩니다.`
+    };
+  } else {
+    advice = {
+      'zh-Hant': '瀏覽器未提供裝置記憶體容量，建議先試輕量模型。',
+      'zh-Hans': '浏览器未提供设备内存容量，建议先试用轻量模型。',
+      en: 'Your browser does not report device memory. Try the light model first.',
+      ja: 'ブラウザーから端末のメモリー容量を取得できません。まずは軽量モデルをお試しください。',
+      ko: '브라우저에서 기기 메모리 용량을 제공하지 않습니다. 먼저 경량 모델을 사용해 보세요.'
+    };
+  }
+  $('#model-advice').textContent = advice[language] || advice.en;
+  refreshAiSetup();
+  return models;
+}
 function storedAiConfig(){try{const value=localStorage.getItem('ng.ai-profile');return value?validateAiConfig(JSON.parse(value)):null}catch{return null}}
 function refreshAiSetup(){const config=storedAiConfig();const modelReady=modelAvailable||Boolean(activeModelId);$('#ai-model-status').textContent=modelReady?tr('setupReady'):tr('setupMissing');$('#ai-profile-status').textContent=config?tr('setupReady'):tr('setupMissing');$('#ai-model-status').className=modelReady?'is-ready':'is-missing';$('#ai-profile-status').className=config?'is-ready':'is-missing';$('#ai-setup-message').textContent=gpuState==='available'&&!config?tr('gpuReadySetupPrompt'):gpuState==='available'&&!modelReady?tr('gpuReadyModelPrompt'):gpuState==='available'?tr('gpuReadyComplete'):tr('gpuBeforeSetup');$('#ai-config-status').textContent=config?tr('profileReady'):tr('profileMissing');$('#export-ai-config').disabled=!config}
 function fillAiProfileFields(config) {

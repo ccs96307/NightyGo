@@ -15,7 +15,7 @@ class SgfGameSession:
         if start_at_end:
             while self.current_node.children:
                 self.path.append(self.current_node.children[0])
-        self.game = self._rebuild_game()
+        self.game = self._rebuild_game(self.path)
 
     @classmethod
     def new_game(cls, size: int = 19) -> SgfGameSession:
@@ -48,18 +48,14 @@ class SgfGameSession:
         """Move to the parent node and rebuild the position."""
         if not self.can_undo:
             raise SgfError("Already at the start of the game")
-        self.path.pop()
-        self.game = self._rebuild_game()
-        return self.game
+        return self._select_path(self.path[:-1])
 
     def next(self, variation_index: int = 0) -> GoGame:
         """Advance along one child variation of the current node."""
         children = self.current_node.children
         if not 0 <= variation_index < len(children):
             raise SgfError("No such variation at the current node")
-        self.path.append(children[variation_index])
-        self.game = self._rebuild_game()
-        return self.game
+        return self._select_path([*self.path, children[variation_index]])
 
     def navigate_to(self, target: SgfNode) -> GoGame:
         """Navigate directly to a node in this session's game tree."""
@@ -77,24 +73,37 @@ class SgfGameSession:
 
         if not find(self.root):
             raise SgfError("The selected node is not part of this game")
-        self.path = path
-        self.game = self._rebuild_game()
-        return self.game
+        return self._select_path(path)
 
     def append_move(self, move: Move) -> GoGame:
         """Append a move as a continuation or a new variation."""
         color = "B" if move.color == BLACK else "W"
         value = "" if move.point is None else _encode_point(move.point)
         node = SgfNode(properties={color: [value]})
-        self.current_node.children.append(node)
-        self.path.append(node)
-        self.game = self._rebuild_game()
+        parent = self.current_node
+        self._select_path([*self.path, node])
+        parent.children.append(node)
         return self.game
 
-    def _rebuild_game(self) -> GoGame:
+    def _select_path(self, path: list[SgfNode]) -> GoGame:
+        # An imported variation may be illegal even if the main line is valid.
+        # Only publish a new path once the entire variation has replayed.
+        game = self._rebuild_game(path)
+        self.path = path
+        self.game = game
+        return self.game
+
+    def _rebuild_game(self, path: list[SgfNode]) -> GoGame:
         size = _board_size(self.root)
         game = GoGame(size=size)
-        for node in self.path:
+        handicap = self.root.values("HA")
+        if handicap:
+            try:
+                if int(handicap[0]) >= 2:
+                    game.set_player_to_play(WHITE)
+            except ValueError as error:
+                raise SgfError(f"Invalid handicap: {handicap[0]!r}") from error
+        for node in path:
             self._apply_setup(game, node)
             player_to_play = node.values("PL")
             if player_to_play:
@@ -106,14 +115,14 @@ class SgfGameSession:
                 continue
             move_value = node.values(move_color)[0]
             game.set_player_to_play(_color_from_sgf(move_color))
-            if move_value == "" or (move_value == "tt" and size <= 19):
-                game.pass_turn()
-            else:
-                try:
+            try:
+                if move_value == "" or (move_value == "tt" and size <= 19):
+                    game.pass_turn()
+                else:
                     x, y = _decode_point(move_value, size)
                     game.play(x, y)
-                except (ValueError, IndexError) as error:
-                    raise SgfError(f"Invalid {move_color} move {move_value!r}") from error
+            except (ValueError, IndexError) as error:
+                raise SgfError(f"Invalid {move_color} move {move_value!r}") from error
         return game
 
     @staticmethod

@@ -73,6 +73,37 @@ class GameControllerTests(unittest.TestCase):
         self.assertIn("TR[ee]", serialized)
         self.assertIn("LB[dd:A]", serialized)
 
+    def test_move_count_counts_root_move_and_skips_annotations(self) -> None:
+        controller = GameController()
+        root = parse_sgf("(;SZ[9]B[aa];C[position];C[end])").games[0]
+        controller.session = SgfGameSession(root, start_at_end=True)
+        self.assertEqual(controller.moveCount, 1)
+
+    def test_selecting_an_invalid_branch_leaves_previous_position_usable(self) -> None:
+        controller = GameController()
+        root = parse_sgf("(;SZ[9];B[cc](;W[dd])(;W[cc]))").games[0]
+        controller.session = SgfGameSession(root)
+        self.assertTrue(controller.next())
+        previous_game = controller.game
+        for navigate in (lambda: controller.next(1), lambda: controller.navigate_to(root.children[0].children[1])):
+            self.assertFalse(navigate())
+            self.assertIs(controller.current_node, root.children[0])
+            self.assertIs(controller.game, previous_game)
+        self.assertTrue(controller.next(0))
+
+    def test_editing_duplicate_variations_targets_selected_node(self) -> None:
+        controller = GameController()
+        root = parse_sgf("(;SZ[9](;B[cc])(;B[cc]))").games[0]
+        first, second = root.children
+        controller.session = SgfGameSession(root)
+        controller.navigate_to(second)
+        self.assertTrue(controller.make_current_variation_mainline())
+        self.assertIs(root.children[0], second)
+        controller.navigate_to(first)
+        self.assertTrue(controller.delete_current_variation())
+        self.assertEqual(len(root.children), 1)
+        self.assertIs(root.children[0], second)
+
     def test_recovery_round_trip_remains_unsaved(self) -> None:
         controller = GameController()
         controller.play_at(3, 3)

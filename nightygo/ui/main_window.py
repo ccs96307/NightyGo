@@ -130,6 +130,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._last_root_metrics: tuple[float, float | None, int] | None = None
         self._review_drops: list[tuple[float, int]] = []
         self._analysis_requested = False
+        self._analysis_restart_pending = False
+        self._analysis_position = None
         self._review_positions: list[tuple[tuple[tuple[int, ...], ...], int, int, object]] = []
         self._review_results: list[tuple[int, float]] = []
         self._review_stones_command: int | None = None
@@ -747,7 +749,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self._review_requested = False
             self._analysis_requested = False
             self._engine.stop_analysis()
-            self._analysis_status.setText("Stopping analysis…")
+            self._analysis_status.setText(self._t("Stopping analysis…"))
             return
         if self._engine.status == GtpEngine.READY:
             self._request_current_position_analysis()
@@ -801,6 +803,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._start_engine_analysis()
 
     def _stop_engine_analysis(self) -> None:
+        self._analysis_restart_pending = False
         self._analysis_requested = False
         self._engine.stop_analysis()
 
@@ -826,6 +829,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self._analysis_status.setText(self._t("Analyzing current position…"))
         elif status == GtpEngine.READY and self._review_requested:
             self._begin_game_review()
+        elif status == GtpEngine.READY and self._analysis_restart_pending and self._analysis_requested:
+            self._request_current_position_analysis()
 
     def _engine_output_received(self, line: str) -> None:
         if self._engine.status != GtpEngine.STARTING:
@@ -838,6 +843,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _request_current_position_analysis(self) -> None:
         self._analysis_requested = True
+        self._analysis_restart_pending = False
+        self._analysis_position = self._current_analysis_position()
         root = self._controller.root
         try:
             komi = float((root.values("KM") or ["6.5"])[0])
@@ -858,6 +865,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._engine.start_analysis(player, interval_ms=500)
 
     def _analysis_updated(self, move: AnalysisMove) -> None:
+        if self._analysis_restart_pending or not (self._reviewing or self._analysis_requested):
+            return
         self._analysis_data[move.vertex] = move
         ordered = sorted(
             self._analysis_data.values(),
@@ -904,6 +913,8 @@ class MainWindow(QtWidgets.QMainWindow):
         )
 
     def _root_info_updated(self, root: AnalysisRoot) -> None:
+        if self._analysis_restart_pending or not (self._reviewing or self._analysis_requested):
+            return
         if root.winrate is None:
             return
         perspective = (
@@ -912,7 +923,10 @@ class MainWindow(QtWidgets.QMainWindow):
             else self.game.to_play
         )
         black_winrate = root.winrate if perspective == BLACK else 1.0 - root.winrate
-        self._last_root_metrics = (black_winrate, root.score_lead, root.visits)
+        score = root.score_lead
+        if perspective == WHITE and score is not None:
+            score = -score
+        self._last_root_metrics = (black_winrate, score, root.visits)
         self._set_root_summary(*self._last_root_metrics)
 
         if self._reviewing and self._review_index < len(self._review_positions):
@@ -931,6 +945,8 @@ class MainWindow(QtWidgets.QMainWindow):
         )
 
     def _ownership_updated(self, values: tuple[float, ...]) -> None:
+        if self._analysis_restart_pending or not (self._reviewing or self._analysis_requested):
+            return
         self._latest_ownership = values
         if self._show_ownership.isChecked():
             self._board.set_ownership(values, self.game.size)
@@ -956,6 +972,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._begin_game_review()
 
     def _begin_game_review(self) -> None:
+        self._analysis_restart_pending = False
+        self._analysis_requested = False
         if not self._review_requested and self._engine.status != GtpEngine.READY:
             return
         self._review_requested = False
@@ -1007,10 +1025,6 @@ class MainWindow(QtWidgets.QMainWindow):
             self._review_stones_command = None
             player = "B" if self._review_positions[self._review_index][1] == BLACK else "W"
             QtCore.QTimer.singleShot(0, lambda: self._begin_review_sample(player))
-        elif self._reviewing and command == "stop":
-            self._review_waiting_analysis_response = False
-            self._review_index += 1
-            QtCore.QTimer.singleShot(0, self._review_next_position)
         elif self._reviewing and command.startswith("kata-analyze ") and self._review_waiting_analysis_response:
             self._review_waiting_analysis_response = False
             self._review_timer.stop()
@@ -1448,11 +1462,15 @@ class MainWindow(QtWidgets.QMainWindow):
             self.game.size,
         )
 
+    def _current_analysis_position(self):
+        return (self._controller.game, tuple(self._controller.root.values("KM")))
+
     def _refresh(self) -> None:
         self.game = self._controller.game
         self.setWindowTitle("NightyGo" + (" *" if self._controller.isDirty else ""))
-        if self._engine.status == GtpEngine.ANALYZING:
-            self._analysis_requested = False
+        position_changed = self._analysis_position != self._current_analysis_position()
+        if position_changed and self._analysis_requested and self._engine.status == GtpEngine.ANALYZING:
+            self._analysis_restart_pending = True
             self._engine.stop_analysis()
         self._analysis_data.clear()
         self._last_root_metrics = None

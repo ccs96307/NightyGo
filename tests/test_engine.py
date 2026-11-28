@@ -51,6 +51,20 @@ class KataGoInfoTests(unittest.TestCase):
     def test_rejects_invalid_numeric_values(self) -> None:
         self.assertIsNone(parse_katago_info("info move D4 visits many winrate 0.5"))
 
+    def test_reads_inline_root_info_from_native_katago_stream(self) -> None:
+        line = (
+            "info move K13 visits 8 order 0 pv K13 D4 "
+            "rootInfo visits 89 utility 0.155677 winrate 0.578115 "
+            "scoreMean 0.195523 scoreLead 0.195523 ownership 0.10269 -0.087118"
+        )
+        move = parse_katago_info(line)
+        self.assertEqual(move.principal_variation, ("K13", "D4"))
+        root = parse_katago_root_info(line)
+        self.assertEqual(root.visits, 89)
+        self.assertEqual(root.winrate, 0.578115)
+        self.assertEqual(root.score_lead, 0.195523)
+        self.assertEqual(parse_katago_ownership(line), (0.10269, -0.087118))
+
     def test_parses_root_metrics_and_ownership_map(self) -> None:
         line = (
             "info rootInfo visits 500 winrate 0.62 scoreLead 3.5 "
@@ -65,6 +79,41 @@ class KataGoInfoTests(unittest.TestCase):
 
 
 class GtpProcessTests(unittest.TestCase):
+    def test_replacing_engine_does_not_terminate_replacement(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        # Answer the handshake and quit promptly like a real GTP process.
+        script = (
+            "import sys\n"
+            "for line in sys.stdin:\n"
+            "    if line.strip() == 'quit': break\n"
+            "    command_id, command = line.split(maxsplit=1)\n"
+            "    print(f'={command_id} ok\\n', flush=True)\n"
+        )
+        config = EngineConfig(sys.executable, ("-u", "-c", script))
+        engine = GtpEngine()
+        ready = []
+        engine.ready.connect(lambda *_: ready.append(True))
+
+        def wait_until(predicate) -> bool:
+            deadline = QtCore.QDeadlineTimer(3000)
+            while not predicate() and not deadline.hasExpired():
+                app.processEvents(QtCore.QEventLoop.ProcessEventsFlag.AllEvents, 10)
+                QtCore.QThread.msleep(5)
+            return predicate()
+
+        try:
+            engine.start(config)
+            self.assertTrue(wait_until(lambda: len(ready) == 1))
+            engine.start(config)
+            self.assertTrue(wait_until(lambda: len(ready) == 2))
+            deadline = QtCore.QDeadlineTimer(1150)
+            self.assertTrue(wait_until(deadline.hasExpired))
+            self.assertTrue(engine.is_running)
+            self.assertEqual(engine.status, engine.READY)
+        finally:
+            engine.stop()
+            wait_until(lambda: not engine.is_running)
+
     def test_process_handshake_and_command_response_are_async(self) -> None:
         app = QApplication.instance() or QApplication([])
         with tempfile.TemporaryDirectory() as directory:

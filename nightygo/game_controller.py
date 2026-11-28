@@ -63,7 +63,7 @@ class GameController(QtCore.QObject):
 
     @QtCore.Property(int, notify=stateChanged)
     def moveCount(self) -> int:
-        return max(0, len(self.session.path) - 1)
+        return len(self.session.game.moves)
 
     @QtCore.Property(bool, notify=stateChanged)
     def canUndo(self) -> bool:
@@ -320,7 +320,7 @@ class GameController(QtCore.QObject):
             return False
         node = self.session.current_node
         parent = self.session.path[-2]
-        parent.children.remove(node)
+        parent.children.pop(next(i for i, child in enumerate(parent.children) if child is node))
         self.session.navigate_to(parent)
         self._publish()
         return True
@@ -333,7 +333,7 @@ class GameController(QtCore.QObject):
             return False
         node = self.session.current_node
         parent = self.session.path[-2]
-        index = parent.children.index(node)
+        index = next(i for i, child in enumerate(parent.children) if child is node)
         if index:
             parent.children.insert(0, parent.children.pop(index))
             self._publish()

@@ -50,10 +50,10 @@ class _Command:
 
 
 _INFO_MOVE = re.compile(
-    r"(?:^|\s)info\s+move\s+(\S+)(.*?)(?=\s+info\s+(?:move|rootInfo|ownership|ownershipStdev|movesOwnership|movesOwnershipStdev)\b|$)"
+    r"(?:^|\s)info\s+move\s+(\S+)(.*?)(?=\s+(?:info\s+move|(?:info\s+)?(?:rootInfo|ownership|ownershipStdev|movesOwnership|movesOwnershipStdev))\b|$)"
 )
 _ROOT_INFO = re.compile(
-    r"(?:^|\s)info\s+rootInfo(.*?)(?=\s+ownership(?:Stdev)?\b|$)"
+    r"(?:^|\s)(?:info\s+)?rootInfo(.*?)(?=\s+ownership(?:Stdev)?\b|$)"
 )
 _OWNERSHIP = re.compile(
     r"(?:^|\s)ownership\s+((?:[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?\s*)+)(?=\s+info\s|\s+ownershipStdev\b|$)"
@@ -227,8 +227,9 @@ class GtpEngine(QtCore.QObject):
             self._set_status(self.STOPPED)
             return
         self._stopping = True
+        process_id = self._process.processId()
         self._process.write(b"quit\n")
-        QtCore.QTimer.singleShot(900, self._terminate_if_running)
+        QtCore.QTimer.singleShot(900, self, lambda: self._terminate_if_running(process_id))
 
     def send_command(self, command: str) -> int | None:
         """Queue one GTP command and return its protocol ID."""
@@ -288,6 +289,13 @@ class GtpEngine(QtCore.QObject):
     def stop_analysis(self) -> None:
         """Interrupt a KataGo analysis without waiting for it to finish first."""
         if self._status != self.ANALYZING or not self.is_running:
+            return
+        for command in tuple(self._queue):
+            if command.tag == "analysis":
+                self._queue.remove(command)
+                self._set_status(self.READY)
+                return
+        if any(command.tag == "stop_analysis" for command in self._inflight.values()):
             return
         command = self._new_command("stop", "stop_analysis")
         self._inflight[command.command_id] = command
@@ -379,6 +387,8 @@ class GtpEngine(QtCore.QObject):
             self.errorOccurred.emit(message)
             if command.tag.startswith("handshake"):
                 self._fail(f"GTP handshake failed: {message}")
+            elif command.tag in ("analysis", "stop_analysis"):
+                self._analysis_command_finished()
             return
         if command.tag == "handshake_protocol":
             self._enqueue("name", tag="handshake_name")
@@ -390,7 +400,13 @@ class GtpEngine(QtCore.QObject):
             self._set_status(self.READY)
             self.ready.emit(self._name, self._version)
             logger.info("GTP engine ready: %s %s", self._name, self._version)
-        elif command.tag == "analysis" or command.tag == "stop_analysis":
+        elif command.tag in ("analysis", "stop_analysis"):
+            self._analysis_command_finished()
+
+    def _analysis_command_finished(self) -> None:
+        # Stopping a stream has two replies. Wait for both before allowing
+        # another stream to start, regardless of their arrival order.
+        if not any(c.tag in ("analysis", "stop_analysis") for c in self._inflight.values()):
             self._set_status(self.READY)
 
     def _read_stderr(self) -> None:
@@ -434,13 +450,13 @@ class GtpEngine(QtCore.QObject):
             config = self._pending_config
             QtCore.QTimer.singleShot(0, lambda: self._launch(config))
 
-    def _terminate_if_running(self) -> None:
-        if self.is_running:
+    def _terminate_if_running(self, process_id: int) -> None:
+        if self._stopping and self._process.processId() == process_id:
             self._process.terminate()
-            QtCore.QTimer.singleShot(900, self._kill_if_running)
+            QtCore.QTimer.singleShot(900, self, lambda: self._kill_if_running(process_id))
 
-    def _kill_if_running(self) -> None:
-        if self.is_running:
+    def _kill_if_running(self, process_id: int) -> None:
+        if self._stopping and self._process.processId() == process_id:
             self._process.kill()
 
     def _fail(self, message: str) -> None:

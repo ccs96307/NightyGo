@@ -84,6 +84,11 @@ class SgfSessionTest(unittest.TestCase):
         session.append_move(move)
         self.assertIn(";B[]", serialize_sgf(SgfCollection([session.root])))
 
+    def test_handicap_sets_white_to_play_unless_player_is_explicit(self) -> None:
+        for property_text, expected in (("", WHITE), ("PL[B]", BLACK)):
+            root = parse_sgf(f"(;SZ[9]HA[2]AB[cg][gc]{property_text})").games[0]
+            self.assertEqual(SgfGameSession(root).game.to_play, expected)
+
     def test_rejects_illegal_moves(self) -> None:
         root = parse_sgf("(;SZ[9];B[aa];W[aa])").games[0]
         with self.assertRaises(SgfError):

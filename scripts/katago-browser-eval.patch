@@ -1,0 +1,80 @@
+--- a/cpp/kataeval/kataeval.cpp
++++ b/cpp/kataeval/kataeval.cpp
+@@ -51,6 +51,7 @@
+ ComputeHandle* gHandle = nullptr;
+ InputBuffers* gInputs = nullptr;
+ int gXLen = 19, gYLen = 19, gModelVersion = 0;
++ModelPostProcessParams gPostProcess;
+ bool gUseNHWC = false;  // WebGPU wants NCHW (false); the Eigen CPU backend wants NHWC (true)
+ std::string gErr = "";
+ const int KGE_MAX_BATCH = 16;  // batched eval: per-batch GPU latency is ~fixed, so a
+@@ -167,6 +168,7 @@
+     gModelPath = modelPath;  // NNEvaluator (kgeSearchKata) reloads from this path
+     gModel = NeuralNet::loadModelFile(modelPath, "");
+     const ModelDesc& desc = NeuralNet::getModelDesc(gModel);
++    gPostProcess = desc.postProcessParams;
+     gModelVersion = desc.modelVersion;
+     gXLen = gYLen = boardSize;
+ 
+@@ -196,6 +198,20 @@
+   }
+ }
+ 
++// The direct backends return side-to-move logits, including for black. Normalize
++// both direct eval and MCTS leaves to the white perspective used by the public ABI.
++static void writeWhiteValue(const NNOutput& raw, Player nextPla, float* valueOut) {
++  const bool white = nextPla == P_WHITE;
++  const float scale = gPostProcess.outputScaleMultiplier;
++  const float signedScale = white ? scale : -scale;
++  valueOut[0] = scale * (white ? raw.whiteWinProb : raw.whiteLossProb);
++  valueOut[1] = scale * (white ? raw.whiteLossProb : raw.whiteWinProb);
++  // buildBoardHist uses area scoring with superko; no-result is impossible.
++  valueOut[2] = -1.0e5f;
++  valueOut[3] = signedScale * raw.whiteScoreMean * gPostProcess.scoreMeanMultiplier;
++  valueOut[4] = signedScale * raw.whiteLead * gPostProcess.leadMultiplier;
++}
++
+ // Run the net on a prepared board + history and write outputs (raw logits).
+ static int evalBoardHist(const Board& board, const BoardHistory& hist, Player nextPla,
+                          float* policyOut, float* valueOut, float* ownerOut) {
+@@ -214,19 +230,19 @@
+   NNOutput output;
+   output.nnXLen = gXLen;
+   output.nnYLen = gYLen;
+-  output.whiteOwnerMap = ownerOut;
++  // NNOutput owns and deletes its array. The caller retains ownerOut.
++  output.whiteOwnerMap = ownerOut == nullptr ? nullptr : new float[gXLen*gYLen];
+   NNResultBuf* bufs[1] = { &buf };
+   std::vector<NNOutput*> outputs = { &output };
+   NeuralNet::getOutput(gHandle, gInputs, 1, bufs, outputs);
+   const int hw = gXLen * gYLen;
+   std::memcpy(policyOut, output.policyProbs, (hw + 1) * sizeof(float));  // raw logits
+-  // valueOut[0..2] are raw win/loss/noResult logits too — the caller softmaxes
+-  // them (see web/demo/analyze.html); valueOut[3..4] are scoreMean / lead.
+-  valueOut[0] = output.whiteWinProb;
+-  valueOut[1] = output.whiteLossProb;
+-  valueOut[2] = output.whiteNoResultProb;
+-  valueOut[3] = output.whiteScoreMean;
+-  valueOut[4] = output.whiteLead;
++  writeWhiteValue(output, nextPla, valueOut);
++  if(ownerOut != nullptr) {
++    const float sign = nextPla == P_WHITE ? 1.0f : -1.0f;
++    for(int i = 0; i < hw; i++)
++      ownerOut[i] = sign * std::tanh(output.whiteOwnerMap[i] * gPostProcess.outputScaleMultiplier);
++  }
+   return 1;
+ }
+ 
+@@ -261,11 +277,7 @@
+   const int hw = gXLen * gYLen;
+   for(int i = 0; i < B; i++) {
+     std::memcpy(policyOut + (size_t)i * (hw + 1), outs[i].policyProbs, (hw + 1) * sizeof(float));
+-    valueOut[i*5+0] = outs[i].whiteWinProb;
+-    valueOut[i*5+1] = outs[i].whiteLossProb;
+-    valueOut[i*5+2] = outs[i].whiteNoResultProb;
+-    valueOut[i*5+3] = outs[i].whiteScoreMean;
+-    valueOut[i*5+4] = outs[i].whiteLead;
++    writeWhiteValue(outs[i], plas[i], valueOut + i*5);
+   }
+   return 1;
+ }

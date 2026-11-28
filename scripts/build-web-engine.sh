@@ -12,12 +12,20 @@ if [[ ! -f "$SOURCE_DIR/scripts/build-eval.sh" ]]; then
   git clone --filter=blob:none https://github.com/saigo-online/katago-webgpu.git "$SOURCE_DIR"
 fi
 git -C "$SOURCE_DIR" checkout --detach "$KATAGO_REF"
+# Both the live page and checked-in engine use this fix for the direct eval ABI.
+PATCH="$ROOT/scripts/katago-browser-eval.patch"
+if ! git -C "$SOURCE_DIR" apply --reverse --check "$PATCH" 2>/dev/null; then
+  git -C "$SOURCE_DIR" apply --check "$PATCH"
+  git -C "$SOURCE_DIR" apply "$PATCH"
+fi
 if [[ ! -f /usr/include/eigen3/Eigen/Dense ]]; then
   echo 'Install Eigen 3 headers (for example: apt install libeigen3-dev).' >&2; exit 2
 fi
 # Emscripten 7 requires em++ for the Dawn/WebGPU final link. Upstream currently
 # uses emcc; patch only this disposable checkout and keep the pinned source intact.
 sed -i 's/^emcc "${OBJS\[@\]}"/em++ "${OBJS[@]}"/' "$SOURCE_DIR/scripts/build-eval.sh"
+# A failed compilation must not be mistaken for a successful build from old output.
+rm -f "$SOURCE_DIR/web/demo/kataeval.js" "$SOURCE_DIR/web/demo/kataeval.wasm"
 set +e
 EMSDK_DIR="$SDK" B5_NET= B20_NET= B18_NET= bash "$SOURCE_DIR/scripts/build-eval.sh"
 build_status=$?

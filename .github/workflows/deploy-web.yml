@@ -6,6 +6,8 @@ on:
     paths:
       - 'web/**'
       - 'scripts/build-web-engine.sh'
+      - 'scripts/katago-browser-eval.patch'
+      - 'scripts/check-web-eval.cjs'
       - '.github/workflows/deploy-web.yml'
   workflow_dispatch:
 
@@ -46,6 +48,8 @@ jobs:
       - name: Smoke-test real KataGo model inference
         working-directory: vendor/katago-webgpu
         run: node web/test-eval.mjs cpp/tests/models/g170-b6c96-s175395328-d26788732.bin.gz
+      - name: Verify browser evaluation perspective and ownership buffers
+        run: node scripts/check-web-eval.cjs vendor/katago-webgpu/cpp/tests/models/g170-b6c96-s175395328-d26788732.bin.gz
       - name: Bundle downloadable KataGo networks for same-origin installation
         run: |
           mkdir -p web/assets/models

@@ -1,6 +1,6 @@
 # NightyGo
 
-The browser edition prototype is in [`web/README.md`](web/README.zh-TW.md). It runs without installing the desktop app; browser AI inference is not integrated yet.
+[Play in your browser](https://ccs96307.github.io/NightyGo/) or [read the web edition guide](web/README.md). The web edition runs KataGo on your device and stores installed models in your browser.
 
 English | [繁體中文](README.zh-TW.md)
 

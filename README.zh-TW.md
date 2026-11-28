@@ -4,7 +4,7 @@
 
 使用 PySide6 開發的圍棋對局、棋譜編輯與 AI 覆盤工作室。支援 SGF 變化樹、棋譜標記、在地棋譜庫、KataGo 即時分析和整盤覆盤；介面可切換深色／暖白主題，也提供 Qt Quick 棋盤工作區。
 
-瀏覽器版原型（免安裝，含 SGF 編輯與本機棋譜庫）請見 [`web/README.zh-TW.md`](web/README.zh-TW.md)。AI 推論尚未移植到瀏覽器版。
+[開啟網頁版](https://ccs96307.github.io/NightyGo/) 或閱讀[網頁版說明](web/README.zh-TW.md)。KataGo 直接在裝置上執行，安裝的模型保存在瀏覽器。
 
 ## 開發與啟動
 

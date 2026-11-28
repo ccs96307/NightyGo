@@ -2,6 +2,7 @@
 importScripts('assets/engine/kataeval.js');
 let moduleInstance, boardSize = 19, moveLocPtr, moveColorPtr;
 let lastStoppedAnalysis = 0;
+let latestRequestId = 0;
 function allocateMoves(moves) {
   if (moveLocPtr) moduleInstance._free(moveLocPtr);
   if (moveColorPtr) moduleInstance._free(moveColorPtr);
@@ -78,9 +79,12 @@ async function analyzeCandidates({moves,toPlay,komi,candidateLocs,visits=128,max
 let requestQueue=Promise.resolve();
 self.onmessage=({data})=>{
   if (data.type === 'stopAnalysis') {
-    lastStoppedAnalysis = Math.max(lastStoppedAnalysis, data.throughRequestId);
+    // An already-open page may still use the previous stop message format.
+    const cutoff = Number.isSafeInteger(data.throughRequestId) ? data.throughRequestId : latestRequestId;
+    lastStoppedAnalysis = Math.max(lastStoppedAnalysis, cutoff);
     return;
   }
+  latestRequestId = Math.max(latestRequestId, data.requestId);
   const run=async()=>{
     try{
       let result;

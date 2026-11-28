@@ -53,7 +53,7 @@ test('a stopped CPU analysis releases the queue and drops its unfinished candida
 test('a cancellation arriving before dispatch also stops the queued request', async () => {
   const worker = workerFixture();
   worker.post(request(5));
-  worker.post({type: 'stopAnalysis', throughRequestId: 5});
+  worker.post({type: 'stopAnalysis'}); // Already-open pages send the legacy form.
   await worker.done();
   assert.equal(worker.messages.at(-1).result.stopped, true);
   assert.equal(worker.messages.filter(m => m.type === 'analysisCandidate').length, 0);

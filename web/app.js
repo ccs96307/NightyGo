@@ -497,12 +497,29 @@ Object.assign(I18N.ja, {modelStorageBlocked:'別の NightyGo タブで旧バー�
 Object.assign(I18N.ko, {modelStorageBlocked:'다른 NightyGo 탭에서 이전 모델 라이브러리를 사용하고 있습니다. 다른 NightyGo 탭을 닫고 다시 시도하세요.'});
 function tr(key,values={}){let value=I18N[language]?.[key]||I18N.en[key]||key;for(const [name,replacement] of Object.entries(values))value=value.replaceAll(`{${name}}`,String(replacement));return value}
 function readStore(key,fallback){try{return JSON.parse(localStorage.getItem(key)) ?? fallback}catch{return fallback}}
-function writeStore(key,value){try{localStorage.setItem(key,JSON.stringify(value))}catch{toast(tr('storageLimit'))}}
+function writeStore(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+    return true;
+  } catch {
+    toast(tr('storageLimit'));
+    return false;
+  }
+}
 function applyLanguage(){document.documentElement.lang=language;document.title=tr('pageTitle');document.querySelector('meta[name=description]').content=tr('metaDescription');document.querySelectorAll('[data-i18n]').forEach(el=>el.textContent=tr(el.dataset.i18n));document.querySelectorAll('[data-i18n-title]').forEach(el=>el.title=tr(el.dataset.i18nTitle));document.querySelectorAll('[data-i18n-aria-label]').forEach(el=>el.setAttribute('aria-label',tr(el.dataset.i18nAriaLabel)));document.querySelectorAll('[data-i18n-placeholder]').forEach(el=>el.placeholder=tr(el.dataset.i18nPlaceholder));$('#language').value=language;$('#library-search').placeholder=tr('librarySearch');if($('#ai-setup-message'))refreshAiSetup();refreshGpuLanguage();refreshAiLanguage()}
 function openMailDialog(){const input=$('#mail-address');input.value=localStorage.getItem('ng.mail-address')||'';$('#mail-dialog').showModal();input.focus()}
 function sendGameMail(){const input=$('#mail-address'),form=$('#mail-dialog form');if(!form.reportValidity())return;const address=input.value.trim();if(!address)return;localStorage.setItem('ng.mail-address',address);const sgf=serializeCollection();const subject=tr('mailSubject'),body=`${tr('mailBody')}\n\n${sgf}`;const url=`mailto:${encodeURIComponent(address)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;if(url.length>7000){toast(tr('mailTooLarge'));return}$('#mail-dialog').close();window.location.href=url}
 function makeRoot(size=19){return {props:{GM:['1'],FF:['4'],CA:['UTF-8'],AP:['NightyGo Web:0.1'],SZ:[String(size)],KM:['6.5']},children:[]}}
-function setupNew(size=Number(prefs.size), persist=true){if(root&&dirty)saveLibrary(false);pointer=null;touchPreviewAnchor=null;root=makeRoot(size);collectionTrees=[root];current=root;path=[root];dirty=false;rebuild();refresh();if(persist)saveRecovery()}
+function setupNew(size = Number(prefs.size), persist = true) {
+  if (root && dirty && !saveLibrary()) return false;
+  root = makeRoot(size);
+  collectionTrees = [root];
+  path = [root];
+  dirty = false;
+  rebuild();
+  refresh();
+  return !persist || saveRecovery();
+}
 function boardSize(){return sgfBoardSize(root)}
 function neighbors(x,y,n){return [[x-1,y],[x+1,y],[x,y-1],[x,y+1]].filter(([a,b])=>a>=0&&b>=0&&a<n&&b<n)}
 function groupInfo(grid,x,y){const color=grid[y][x],group=[],lib=new Set(),seen=new Set([`${x},${y}`]),stack=[[x,y]];while(stack.length){const [cx,cy]=stack.pop();group.push([cx,cy]);for(const [nx,ny] of neighbors(cx,cy,grid.length)){if(grid[ny][nx]===0)lib.add(`${nx},${ny}`);else if(grid[ny][nx]===color&&!seen.has(`${nx},${ny}`)){seen.add(`${nx},${ny}`);stack.push([nx,ny])}}}return {group,lib}}
@@ -555,11 +572,11 @@ function appendMove(x, y, pass = false) {
 function navigateTo(target){const found=[];function search(node){found.push(node);if(node===target)return true;for(const c of node.children||[])if(search(c))return true;found.pop();return false}if(search(root))selectPath(found)}
 function previous(){if(path.length>1)selectPath(path.slice(0,-1))}
 function next(index=0){if(current.children?.length)selectPath([...path,current.children[index]||current.children[0]]);else toast(tr('noBranch'))}
-function updateComment(value){if(value.trim())current.props.C=[value];else delete current.props.C;dirty=true;refreshTree();saveRecovery()}
+function updateComment(value){if(value.trim())current.props.C=[value];else delete current.props.C;dirty=true;refreshTree();return saveRecovery()}
 
 function serialize(node){return serializeSgf(node)}
 function saveRecovery(sgf=serializeCollection()) {
-  writeStore('ng.autosave', makeRecovery(sgf, collectionTrees, path, dirty));
+  return writeStore('ng.autosave', makeRecovery(sgf, collectionTrees, path, dirty));
 }
 
 function restoreRecovery() {
@@ -579,7 +596,21 @@ function restoreRecovery() {
 }
 
 function serializeCollection(){return collectionTrees.map(serialize).join("\n")}
-function downloadSgf(){const data=serializeCollection();const blob=new Blob([data],{type:'application/x-go-sgf;charset=utf-8'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`${safeName(root.props.PB?.[0]||'nightygo')}-${new Date().toISOString().slice(0,10)}.sgf`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);dirty=false;refresh();toast(tr('saved'));saveLibrary(true)}
+function downloadSgf() {
+  const data = serializeCollection();
+  const blob = new Blob([data], {type:'application/x-go-sgf;charset=utf-8'});
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `${safeName(root.props.PB?.[0] || 'nightygo')}-${new Date().toISOString().slice(0, 10)}.sgf`;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+  // The external copy lets the user continue even with an exhausted quota.
+  dirty = false;
+  refreshHeader();
+  const archived = saveLibrary();
+  const backedUp = saveRecovery(data);
+  toast(tr(archived && backedUp ? 'saved' : 'exportedOnly'));
+}
 function handicapPoints(size, count) {
   const low = size >= 13 ? 3 : 2;
   const high = size - 1 - low;
@@ -590,6 +621,13 @@ function handicapPoints(size, count) {
   if ([5,7,9].includes(count)) points.push([mid,mid]);
   return points.map(([x,y]) => String.fromCharCode(97+x, 97+y));
 }
+for (const [locale, message] of Object.entries({
+  'zh-Hant':'已開始匯出 SGF。本機儲存空間不足，請保留下載的檔案。',
+  'zh-Hans':'已开始导出 SGF。本地存储空间不足，请保留下载的文件。',
+  en:'SGF download started. Browser storage is full. Keep the downloaded file.',
+  ja:'SGF のダウンロードを開始しました。ブラウザーの保存容量が不足しています。ファイルを保管してください。',
+  ko:'SGF 다운로드를 시작했습니다. 브라우저 저장 공간이 부족하므로 다운로드한 파일을 보관하세요.',
+})) I18N[locale].exportedOnly = message;
 for (const [locale, label] of Object.entries({'zh-Hant':'和棋', 'zh-Hans':'和棋', en:'Draw', ja:'持碁', ko:'무승부'})) {
   I18N[locale].scoreDraw = label;
 }
@@ -609,7 +647,27 @@ function updateOverlayToggles(){
 }
 
 function safeName(s){return s.toLowerCase().replace(/[^a-z0-9-_]+/g,'-').replace(/^-|-$/g)||'game'}
-function saveLibrary(toastIt=true){if(!root)return;const sgf=serializeCollection(),meta=root.props;const title=`${meta.PB?.[0]||'Black'} – ${meta.PW?.[0]||'White'}`;const old=library.find(g=>g.sgf===sgf);library=[{id:old?.id||Date.now(),title,event:meta.EV?.[0]||'',result:meta.RE?.[0]||'',tags:old?.tags||[],sgf,updated:new Date().toISOString()},...library.filter(g=>g.sgf!==sgf)].slice(0,100);writeStore('ng.library',library);dirty=false;saveRecovery(sgf);refreshLibrary();refreshHeader();if(toastIt)toast(tr('saveFirst'))}
+function saveLibrary() {
+  const sgf = serializeCollection();
+  const meta = root.props;
+  const old = library.find(game => game.sgf === sgf);
+  const entry = {
+    id: old?.id || Date.now(),
+    title: `${meta.PB?.[0] || 'Black'} – ${meta.PW?.[0] || 'White'}`,
+    event: meta.EV?.[0] || '',
+    result: meta.RE?.[0] || '',
+    tags: old?.tags || [],
+    sgf,
+    updated: new Date().toISOString(),
+  };
+  const updated = [entry, ...library.filter(game => game.sgf !== sgf)].slice(0, 100);
+  if (!writeStore('ng.library', updated)) return false;
+  library = updated;
+  dirty = false;
+  refreshLibrary();
+  refreshHeader();
+  return true;
+}
 function loadSgfTree(tree, collection = [tree]) {
   const nodes = [tree];
   while (nodes.at(-1).children.length) nodes.push(nodes.at(-1).children[0]);
@@ -620,16 +678,15 @@ function loadSgfTree(tree, collection = [tree]) {
     toast(tr('badSgf'));
     return;
   }
-  if (dirty) saveLibrary(false);
+  if (dirty && !saveLibrary()) return;
   collectionTrees = collection;
   root = tree;
   installPosition(nodes, position);
   dirty = false;
   refresh();
-  saveRecovery();
-  toast(tr('loaded'));
+  if (saveRecovery()) toast(tr('loaded'));
 }
-function refresh(){if (reviewLine.length && reviewLine[0] !== root) {reviewLine=[];renderReviewResults()}if(analysisActive&&engineBoardSize&&engineBoardSize!==boardSize())stopAnalysis();else if(analysisActive&&analysisTargetNode&&(analysisTargetNode!==current||analysisTargetBoard!==board||analysisTargetKomi!==gameKomi()))requestAnalysisRestart();if(ruleEstimateBoard&&(ruleEstimateBoard!==board||ruleEstimateNode!==current||ruleEstimateKomi!==Number(root.props.KM?.[0]??6.5))){ruleEstimate=null;ruleOwnershipMap=null;deadStoneMap=null;ruleEstimateBoard=null;ruleEstimateNode=null;ruleEstimateKomi=null;showRuleEstimate=false;showDeadSuggestions=false}if(engineBoardSize&&engineBoardSize!==boardSize()){terminateEngineWorker();$('#engine-message').textContent=tr('boardSizeChanged')}if(analyzedNode&&(analyzedNode!==current||analyzedBoard!==board||analyzedKomi!==gameKomi())){clearPositionAnalysis();if(engineReady)$('#engine-message').textContent=tr(analysisActive?'analysisRunning':'positionChanged')}updateOverlayToggles();refreshBoard();refreshHeader();refreshControls();refreshTree();refreshInfo();refreshLibrary();$('#comment').value=current.props.C?.join('\n')||'';$('#tree-count').textContent=countNodes(root);$('#undo').disabled=path.length<=1;$('#redo').disabled=!current.children?.length;$('#previous').disabled=path.length<=1;$('#next').disabled=!current.children?.length;if(dirty)saveRecovery()}
+function refresh(){if (reviewLine.length && reviewLine[0] !== root) {reviewLine=[];renderReviewResults()}if(analysisActive&&engineBoardSize&&engineBoardSize!==boardSize())stopAnalysis();else if(analysisActive&&analysisTargetNode&&(analysisTargetNode!==current||analysisTargetBoard!==board||analysisTargetKomi!==gameKomi()))requestAnalysisRestart();if(ruleEstimateBoard&&(ruleEstimateBoard!==board||ruleEstimateNode!==current||ruleEstimateKomi!==Number(root.props.KM?.[0]??6.5))){ruleEstimate=null;ruleOwnershipMap=null;deadStoneMap=null;ruleEstimateBoard=null;ruleEstimateNode=null;ruleEstimateKomi=null;showRuleEstimate=false;showDeadSuggestions=false}if(engineBoardSize&&engineBoardSize!==boardSize()){terminateEngineWorker();$('#engine-message').textContent=tr('boardSizeChanged')}if(analyzedNode&&(analyzedNode!==current||analyzedBoard!==board||analyzedKomi!==gameKomi())){clearPositionAnalysis();if(engineReady)$('#engine-message').textContent=tr(analysisActive?'analysisRunning':'positionChanged')}updateOverlayToggles();refreshBoard();refreshHeader();refreshControls();refreshTree();refreshInfo();refreshLibrary();$('#comment').value=current.props.C?.join('\n')||'';$('#tree-count').textContent=countNodes(root);$('#undo').disabled=path.length<=1;$('#redo').disabled=!current.children?.length;$('#previous').disabled=path.length<=1;$('#next').disabled=!current.children?.length;return !dirty || saveRecovery()}
 function restorePanelOrder(){const panelBox=$('#side-panels'),fallback=['analysis-panel','tree-panel','info-panel'];let order=readStore('ng.panel-order',fallback);if(!Array.isArray(order)||new Set(order).size!==fallback.length||fallback.some(id=>!order.includes(id)))order=fallback;for(const id of order){const panel=document.getElementById(id);if(panel)panelBox.append(panel)}}
 function savePanelOrder(){writeStore('ng.panel-order',[...$('#side-panels').children].map(panel=>panel.id))}
 function bindPanelReordering(){
@@ -649,7 +706,20 @@ function countNodes(node){return 1+(node.children||[]).reduce((a,c)=>a+countNode
 function refreshHeader(){const p=root.props;$('#game-name').textContent=p.GN?.[0]||`${p.PB?.[0]||tr('blackPlayer')}${tr('versus')}${p.PW?.[0]||tr('whitePlayer')}`;$('#game-meta').textContent=`${boardSize()} × ${boardSize()} · ${dirty ? tr('unsaved') : (p.DT?.[0] || tr('localSgf'))}`}
 function refreshControls(){$('#turn-label').textContent=tr(toPlay===BLACK?'blackTurn':'whiteTurn');$('#turn-pill .stone-chip').className=`stone-chip ${toPlay===BLACK?'black':'white'}`;$('#black-captures').textContent=captures[BLACK];$('#white-captures').textContent=captures[WHITE];const {played,total}=variationMoveCounts(path);$('#move-count').textContent=played;$('#move-position').textContent=`${played} / ${total}`;$('#game-meta').setAttribute('title',dirty?tr('unsavedChanges'):'')}
 function refreshInfo(){const p=root.props;$('#info-black').textContent=p.PB?.[0]||'—';$('#info-white').textContent=p.PW?.[0]||'—';$('#info-event').textContent=p.EV?.[0]||'—';$('#info-result').textContent=p.RE?.[0]||'—';$('#info-komi').textContent=p.KM?.[0]||'—'}
-function refreshLibrary(){const q=$('#library-search').value.toLocaleLowerCase();const found=library.filter(g=>(g.title+' '+g.event+' '+g.result+' '+(g.tags||[]).join(' ')).toLocaleLowerCase().includes(q));$('#library-list').innerHTML=found.length?found.map(g=>`<article class="library-card" data-lib="${g.id}"><b>${escapeHtml(g.title)}</b><span>${escapeHtml(g.event||tr('localSgf'))} · ${escapeHtml(g.result||'—')}</span><input class="library-tags" data-tags="${g.id}" value="${escapeHtml((g.tags||[]).join(', '))}" placeholder="${tr('tagsPlaceholder')}" aria-label="${tr('tagsAriaLabel')}" /></article>`).join(''):`<div class="library-empty">${tr('noGames')}</div>`;document.querySelectorAll('[data-lib]').forEach(el=>el.onclick=e=>{if(e.target.matches('.library-tags'))return;const g=library.find(v=>v.id===Number(el.dataset.lib));if(g)try{const games=parseSgf(g.sgf);loadSgfTree(games[0],games)}catch{toast(tr('badSgf'))}});document.querySelectorAll('.library-tags').forEach(input=>input.onchange=()=>{const g=library.find(v=>v.id===Number(input.dataset.tags));if(g){g.tags=input.value.split(',').map(t=>t.trim()).filter(Boolean);writeStore('ng.library',library);toast(tr('tagsSaved'))}})}
+function refreshLibrary(){const q=$('#library-search').value.toLocaleLowerCase();const found=library.filter(g=>(g.title+' '+g.event+' '+g.result+' '+(g.tags||[]).join(' ')).toLocaleLowerCase().includes(q));$('#library-list').innerHTML=found.length?found.map(g=>`<article class="library-card" data-lib="${g.id}"><b>${escapeHtml(g.title)}</b><span>${escapeHtml(g.event||tr('localSgf'))} · ${escapeHtml(g.result||'—')}</span><input class="library-tags" data-tags="${g.id}" value="${escapeHtml((g.tags||[]).join(', '))}" placeholder="${tr('tagsPlaceholder')}" aria-label="${tr('tagsAriaLabel')}" /></article>`).join(''):`<div class="library-empty">${tr('noGames')}</div>`;document.querySelectorAll('[data-lib]').forEach(el=>el.onclick=e=>{if(e.target.matches('.library-tags'))return;const g=library.find(v=>v.id===Number(el.dataset.lib));if(g)try{const games=parseSgf(g.sgf);loadSgfTree(games[0],games)}catch{toast(tr('badSgf'))}});document.querySelectorAll('.library-tags').forEach(input => input.onchange = () => {
+    const id = Number(input.dataset.tags);
+    const entry = library.find(game => game.id === id);
+    if (!entry) return;
+    const tags = input.value.split(',').map(tag => tag.trim()).filter(Boolean);
+    const updated = library.map(game => game === entry ? {...game, tags} : game);
+    if (writeStore('ng.library', updated)) {
+      library = updated;
+      toast(tr('tagsSaved'));
+    } else {
+      input.value = (entry.tags || []).join(', ');
+    }
+  });
+}
 function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function refreshTree() {
   const svg = $('#game-tree');
@@ -1126,16 +1196,39 @@ function applyGameInfo(event) {
     else delete root.props[key];
   }
   dirty = true;
-  refresh();
-  toast(tr('metadataSaved'));
+  if (refresh()) toast(tr('metadataSaved'));
 }
 
-function openSettings(){const d=$('#settings-dialog');d.dataset.before=JSON.stringify(prefs);applyPrefs();d.showModal()}
+function openSettings(){const d=$('#settings-dialog');d.returnValue='';d.querySelector('[role=alert]')?.remove();d.dataset.before=JSON.stringify(prefs);applyPrefs();d.showModal()}
+function applySettings(event) {
+  if (event.submitter?.id !== 'save-settings') return;
+  const size = Number($('#board-size').value);
+  const next = {...prefs, size, theme: $('#theme').value, board: $('#board-material').value,
+    stones: $('#stone-material').value, font: Number($('#font-size').value),
+    sound: $('#placement-sound').value, motion: $('#motion').value};
+  const resize = size !== boardSize();
+  if ((resize && dirty && !saveLibrary()) || !writeStore('ng.preferences', next)) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    let message = form.querySelector('[role=alert]');
+    if (!message) {
+      message = document.createElement('p');
+      message.setAttribute('role', 'alert');
+      form.querySelector('.modal-actions').before(message);
+    }
+    message.textContent = tr('storageLimit');
+    return;
+  }
+  prefs = next;
+  const saved = !resize || setupNew(size);
+  applyPrefs();
+  if (saved) toast(tr('settingsApplied'));
+}
 function restoreSettings(){const before=$('#settings-dialog').dataset.before;if(before){prefs=JSON.parse(before);applyPrefs()}}
 function showGameChooser(games){const dialog=$('#game-chooser');const select=$('#game-choice');select.innerHTML=games.map((g,i)=>{const name=escapeHtml(g.props.GN?.[0]||g.props.PB?.[0]||tr('unknownGame'));return `<option value="${i}">${i+1}. ${tr('gameEntry',{name,nodes:countNodes(g)})}</option>`}).join('');dialog.showModal();$('#choose-game').onclick=()=>{const index=Number(select.value);loadSgfTree(games[index],games)}}
 function bind(){
  $('#language').onchange=e=>{language=e.target.value;localStorage.removeItem(LANGUAGE_COOKIE);saveLanguageCookie(language);applyLanguage();refresh();refreshModels().catch(error=>console.warn('Could not refresh localized model list',error))};$('#settings-open').onclick=openSettings;
- $('#new-game').onclick=()=>{if(dirty)saveLibrary(false);setupNew(Number(prefs.size))};$('#import-button').onclick=()=>$('#file-input').click();$('#file-input').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const games=parseSgfBytes(await f.arrayBuffer());if(games.length>1)showGameChooser(games);else loadSgfTree(games[0],games)}catch(err){console.error(err);toast(tr('badSgf'))}e.target.value=''};
+ $('#new-game').onclick=()=>setupNew(Number(prefs.size));$('#import-button').onclick=()=>$('#file-input').click();$('#file-input').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const games=parseSgfBytes(await f.arrayBuffer());if(games.length>1)showGameChooser(games);else loadSgfTree(games[0],games)}catch(err){console.error(err);toast(tr('badSgf'))}e.target.value=''};
  $('#save-sgf').onclick=downloadSgf;$('#send-mail').onclick=openMailDialog;$('#mail-address').oninput=e=>{if(e.target.checkValidity()&&e.target.value.trim())localStorage.setItem('ng.mail-address',e.target.value.trim())};$('#open-mail').onclick=sendGameMail;$('#score-game').onclick=scoreGame;$('#dead-stones-toggle').onclick=toggleDeadSuggestions;$('#ai-territory-toggle').onclick=toggleAiOwnership;$('#undo').onclick=previous;$('#redo').onclick=()=>next(0);$('#previous').onclick=previous;$('#next').onclick=()=>next(0);$('#first').onclick=()=>navigateTo(root);$('#last').onclick=()=>{let n=current;while(n.children?.length)n=n.children[0];navigateTo(n)};$('#pass').onclick=()=>appendMove(0,0,true);$('#main-line').onclick=()=>{$('#main-line').classList.toggle('active');refreshTree()};$('#collapse-tree').onclick=()=>{treePan.x=0;treePan.y=0;$('#tree-scroll').scrollTo({left:0,top:0,behavior:'smooth'});refreshTree()};bindTreePan();$('#review-game').onclick=reviewGame;$('#check-gpu').onclick=checkGpu;$('#model-center').onclick=openModelCenter;$('#model-dialog').addEventListener('close',()=>{if(resumeAnalysisAfterConfig&&engineReady){resumeAnalysisAfterConfig=false;toggleAnalysis()}});document.querySelectorAll('[data-model-url]').forEach(button=>button.onclick=()=>downloadOfficialModel(button.dataset.modelUrl,button.dataset.modelName).catch(()=>{}));$('#model-file').onchange=e=>importModel(e.target.files[0]);$('#save-ai-config').onclick=downloadAiConfig;$('#export-ai-config').onclick=()=>{const config=storedAiConfig();if(!config)return;const blob=new Blob([JSON.stringify(config,null,2)+'\n'],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='nightygo-ai-profile.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)};$('#ai-config-file').onchange=e=>importAiConfig(e.target.files[0]).catch(err=>toast(err.message));$('#load-model').onclick=()=>loadSelectedModel().catch(err=>toast(err.message));$('#analyze-position').onclick=toggleAnalysis;$('#play-ai').onclick=playAiMove;
  $('#markup-tool').onchange=e=>{pendingLinePoint=null;$('#markup-label').disabled=e.target.value!=='LB';drawBoard()};$('#markup-label').disabled=true;const canvas=$('#go-board');bindBoardPointers(canvas, {
    pointAt(event) {
@@ -1156,8 +1249,8 @@ function bind(){
      catch (error) { toast(error.message || tr('illegal')); }
    },
  });canvas.onkeydown=e=>{if(e.key==='ArrowLeft')previous();if(e.key==='ArrowRight')next(0)};window.addEventListener('resize',()=>{resizeCanvas();refreshTree()});new ResizeObserver(()=>{resizeCanvas();refreshTree()}).observe($('#board-wrap'));
- $('#save-comment').onclick=()=>{updateComment($('#comment').value);toast(tr('commentSaved'))};$('#edit-info').onclick=openGameInfo;$('#info-dialog form').onsubmit=applyGameInfo;$('#library-search').oninput=refreshLibrary;
- $('#font-size').oninput=e=>{$('#font-value').value=`${e.target.value} px`;document.documentElement.style.setProperty('--font',`${e.target.value}px`)};$('#preview-sound').onclick=()=>playSound($('#placement-sound').value);$('#theme').onchange=e=>applyInterfaceTheme(e.target.value);$('#motion').onchange=e=>{prefs.motion=e.target.value;drawBoard()};$('#board-material').onchange=e=>{prefs.board=e.target.value;drawBoard()};$('#stone-material').onchange=e=>{prefs.stones=e.target.value;drawBoard();drawStonePreviews()};$('#save-settings').onclick=()=>{const newSize=Number($('#board-size').value);prefs={...prefs,theme:$('#theme').value,board:$('#board-material').value,stones:$('#stone-material').value,size:newSize,font:Number($('#font-size').value),sound:$('#placement-sound').value,motion:$('#motion').value};if(newSize!==boardSize()){prefs.size=newSize;setupNew(newSize);toast(tr('settingsApplied'))}else{writeStore('ng.preferences',prefs);applyPrefs();toast(tr('settingsApplied'))}};$('#settings-dialog').addEventListener('close',()=>{if($('#settings-dialog').returnValue!=='default')restoreSettings();else{prefs={...prefs,theme:$('#theme').value,board:$('#board-material').value,stones:$('#stone-material').value,font:Number($('#font-size').value),sound:$('#placement-sound').value,motion:$('#motion').value};writeStore('ng.preferences',prefs);applyPrefs()}});
+ $('#save-comment').onclick=()=>{if(updateComment($('#comment').value))toast(tr('commentSaved'))};$('#edit-info').onclick=openGameInfo;$('#info-dialog form').onsubmit=applyGameInfo;$('#library-search').oninput=refreshLibrary;
+ $('#font-size').oninput=e=>{$('#font-value').value=`${e.target.value} px`;document.documentElement.style.setProperty('--font',`${e.target.value}px`)};$('#preview-sound').onclick=()=>playSound($('#placement-sound').value);$('#theme').onchange=e=>applyInterfaceTheme(e.target.value);$('#motion').onchange=e=>{prefs.motion=e.target.value;drawBoard()};$('#board-material').onchange=e=>{prefs.board=e.target.value;drawBoard()};$('#stone-material').onchange=e=>{prefs.stones=e.target.value;drawBoard();drawStonePreviews()};$('#settings-dialog form').onsubmit=applySettings;$('#settings-dialog').addEventListener('close',()=>{if($('#settings-dialog').returnValue!=='default')restoreSettings()});
  $('#install-app').onclick=async()=>{if(pendingInstall){pendingInstall.prompt();pendingInstall=null;$('#install-app').hidden=true}};window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();pendingInstall=e;$('#install-app').hidden=false});window.addEventListener('beforeunload',e=>{if(root&&dirty){saveRecovery();e.preventDefault();e.returnValue=''}});
 }
 function init(){restorePanelOrder();applyLanguage();applyPrefs();drawStonePreviews();bind();bindPanelReordering();restoreRecovery();refresh();refreshModels().then(models=>{const remembered=localStorage.getItem('ng.last-model-id');if(remembered&&models.some(model=>model.id===remembered))loadSelectedModel({automatic:true,id:remembered}).catch(error=>{console.warn('Could not restore the last KataGo model',error);toast(error.message)})}).catch(error=>console.warn('Could not read local models',error));checkGpu();if('serviceWorker'in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('sw.js').catch(()=>{});}

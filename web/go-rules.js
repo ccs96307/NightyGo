@@ -1,6 +1,31 @@
 const BLACK = 1, WHITE = 2;
 const neighbors = (x, y, n) => [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]].filter(([a, b]) => a >= 0 && b >= 0 && a < n && b < n);
 
+function emptyRegions(board, groupAt, groups) {
+  const n = board.length;
+  const regions = [], regionAt = Array.from({length: n}, () => Array(n).fill(-1));
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+    if (board[y][x] || regionAt[y][x] >= 0) continue;
+    const id = regions.length, points = [], border = new Set(), stack = [[x, y]];
+    let boundarySides = 0, stoneBoundarySides = 0;
+    regionAt[y][x] = id;
+    while (stack.length) {
+      const [cx, cy] = stack.pop(); points.push([cx, cy]);
+      const adjacent = neighbors(cx, cy, n); boundarySides += 4 - adjacent.length;
+      for (const [nx, ny] of adjacent) {
+        if (board[ny][nx]) { border.add(groupAt[ny][nx]); boundarySides++; stoneBoundarySides++; }
+        else if (regionAt[ny][nx] < 0) { regionAt[ny][nx] = id; stack.push([nx, ny]); }
+      }
+    }
+    const colors = new Set([...border].map(groupId => groups[groupId].color));
+    const owner = colors.size === 1 ? [...colors][0] : 0;
+    const touchesStones = ([x, y]) => neighbors(x, y, n).some(([nx, ny]) => board[ny][nx]);
+    const enclosed = owner && (stoneBoundarySides / boundarySides >= .65 || points.every(touchesStones));
+    regions.push({id, points, border, owner, color: enclosed ? owner : 0});
+  }
+  return regions;
+}
+
 export function estimateRulePosition(board, komi = 6.5) {
   const n = board.length, groups = [], groupAt = Array.from({length: n}, () => Array(n).fill(-1));
   for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
@@ -17,31 +42,14 @@ export function estimateRulePosition(board, komi = 6.5) {
     groups.push({id, color, stones, liberties});
   }
 
-  const regions = [], regionAt = Array.from({length: n}, () => Array(n).fill(-1));
-  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
-    if (board[y][x] || regionAt[y][x] >= 0) continue;
-    const id = regions.length, points = [], border = new Set(), stack = [[x, y]];
-    let boundarySides = 0, stoneBoundarySides = 0;
-    regionAt[y][x] = id;
-    while (stack.length) {
-      const [cx, cy] = stack.pop(); points.push([cx, cy]);
-      const adjacent = neighbors(cx, cy, n); boundarySides += 4 - adjacent.length;
-      for (const [nx, ny] of adjacent) {
-        if (board[ny][nx]) { border.add(groupAt[ny][nx]); boundarySides++; stoneBoundarySides++; }
-        else if (regionAt[ny][nx] < 0) { regionAt[ny][nx] = id; stack.push([nx, ny]); }
-      }
-    }
-    const colors = new Set([...border].map(groupId => groups[groupId].color));
-    const enclosedColor = colors.size === 1 && stoneBoundarySides / boundarySides >= .65 ? [...colors][0] : 0;
-    regions.push({id, points, border, color: enclosedColor});
-  }
+  const regions = emptyRegions(board, groupAt, groups);
 
   // Benson's iterative vital-eye test identifies groups alive regardless of
   // the opponent's moves. Ambiguous seki and unsettled groups stay unclassified.
   const alive = new Set();
   for (const color of [BLACK, WHITE]) {
     const activeGroups = new Set(groups.filter(g => g.color === color).map(g => g.id));
-    const activeRegions = new Set(regions.filter(r => r.color === color).map(r => r.id));
+    const activeRegions = new Set(regions.filter(r => r.owner === color).map(r => r.id));
     let changed = true;
     while (changed) {
       changed = false;
@@ -68,15 +76,19 @@ export function estimateRulePosition(board, komi = 6.5) {
     if (enclosedLiberties) { deadGroups.push(group); for (const [x, y] of group.stones) deadStones[y * n + x] = true; }
   }
 
-  const ownership = Array(n * n).fill(0); let black = 0, white = komi;
-  for (const group of groups) {
-    if (deadGroups.includes(group)) {
-      if (group.color === BLACK) white += group.stones.length; else black += group.stones.length;
-      continue;
-    }
-    if (group.color === BLACK) black += group.stones.length; else white += group.stones.length;
+  const ownership = Array(n * n).fill(0);
+  let black = 0, white = komi;
+  const scoringBoard = deadGroups.length ? board.map(row => row.slice()) : board;
+  for (const group of deadGroups) {
+    for (const [x, y] of group.stones) scoringBoard[y][x] = 0;
   }
-  for (const region of regions) {
+  for (const group of groups) {
+    if (deadGroups.includes(group)) continue;
+    if (group.color === BLACK) black += group.stones.length;
+    else white += group.stones.length;
+  }
+  const scoringRegions = deadGroups.length ? emptyRegions(scoringBoard, groupAt, groups) : regions;
+  for (const region of scoringRegions) {
     if (region.color === BLACK) { black += region.points.length; for (const [x, y] of region.points) ownership[y * n + x] = 1; }
     else if (region.color === WHITE) { white += region.points.length; for (const [x, y] of region.points) ownership[y * n + x] = -1; }
   }
@@ -93,9 +105,9 @@ export function estimateRulePosition(board, komi = 6.5) {
     const reach = Math.max(3, Math.floor(n / 3));
     for (let point = 0; point < n * n; point++) {
       const x = point % n, y = Math.floor(point / n);
-      if (board[y][x] || ownership[point]) continue;
+      if (scoringBoard[y][x] || ownership[point]) continue;
       const b = distances[BLACK][point], w = distances[WHITE][point];
-      if (b <= reach && w <= reach && Math.abs(b - w) >= 2) {
+      if (Math.min(b, w) <= reach && Math.abs(b - w) >= 2) {
         const owner = b < w ? BLACK : WHITE; ownership[point] = owner === BLACK ? 2 : -2;
         if (owner === BLACK) black++; else white++;
       }
@@ -103,5 +115,5 @@ export function estimateRulePosition(board, komi = 6.5) {
   }
 
   const diff = Math.abs(black - white);
-  return {ownership, deadStones, deadGroupCount: deadGroups.length, black, white, komi, diff, winner: black > white ? 'B' : 'W'};
+  return {ownership, deadStones, deadGroupCount: deadGroups.length, black, white, komi, diff, winner: diff === 0 ? '0' : black > white ? 'B' : 'W'};
 }

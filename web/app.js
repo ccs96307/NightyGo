@@ -1,4 +1,8 @@
-import {parseSgf, serializeSgf} from "./sgf-core.js";
+import {createModelStorage} from './model-storage.js';
+import {bindBoardPointers} from "./placement-input.js";
+import {sgfBoardSize, decodePoint, expandSetup, isSgfPass, replayPath} from "./sgf-position.js";
+import {makeRecovery, readRecovery} from './recovery.js';
+import {layoutGameTree, parseSgf, parseSgfBytes, serializeSgf, variationMoveCounts} from "./sgf-core.js";
 import {DEFAULT_AI_CONFIG, parseAiConfig, validateAiConfig} from "./ai-config.js";
 import {estimateRulePosition} from "./go-rules.js";
 const BLACK = 1, WHITE = 2;
@@ -120,47 +124,132 @@ let pendingLinePoint=null;
 let collectionTrees=[], root, current, board = [], captures = {[BLACK]:0,[WHITE]:0}, toPlay = BLACK, last = null, path = [], positionHistory=[], dirty=false, pointer=null, touchPreviewAnchor=null, animationFrame=0, library=readStore('ng.library',[]), pendingInstall, engineWorker=null, activeModelId='', engineBoardSize=0, engineReady=false, analyzedNode=null, analyzedBoard=null, ownershipMap=null, engineRequestId=0;
 let ruleOwnershipMap=null,ruleEstimate=null,ruleEstimateBoard=null,ruleEstimateNode=null,ruleEstimateKomi=null,deadStoneMap=null,showRuleEstimate=false,showDeadSuggestions=false,showAiOwnership=false;
 let animationTimer = 0, gpuState = 'unknown', gpuReason = 'checking', gpuError = '', modelAvailable = false;
-let engineRequestCancels=new Map();
+const engineRequestCancels = new Map();
+let exclusiveAiAction = false;
+let ownershipEnabled = true;
+let analyzedKomi = null;
 let modelBackendGpu=false,modelVersion=null,lastAnalysisScore=0,analysisOutputType='position',reviewResults=[],reviewMoveCount=0,reviewLine=[],aiProgressState=null,modelLoadingStage='initializingEngine',modelLoadingValues={},modelProgressDetailKey='',modelProgressDetailValues={},candidateAnalysis=[],candidateAnalysisRounds=0,selectedCandidateLoc=null,analysisActive=false,analysisRunId=0,analysisTask=null,analysisTargetNode=null,analysisTargetBoard=null,analysisTargetKomi=null,analysisRestartPending=false,analysisStopping=false,resumeAnalysisAfterConfig=false;
 const skyStartedAt = performance.now() / 1000;
 const treePan = {x:0, y:0, width:320, height:240, root:null, dragging:false, moved:false, lastX:0, lastY:0};
 let modelProgressMode=null;
-const modelDb = () => new Promise((resolve,reject)=>{const req=indexedDB.open('nightygo-models-v1',2);req.onupgradeneeded=()=>{const db=req.result;if(!db.objectStoreNames.contains('models'))db.createObjectStore('models',{keyPath:'id'});if(!db.objectStoreNames.contains('modelChunks'))db.createObjectStore('modelChunks',{keyPath:['id','index']})};req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error)});
-async function putModel(model){const db=await modelDb();return new Promise((resolve,reject)=>{const tx=db.transaction('models','readwrite');tx.objectStore('models').put(model);tx.oncomplete=()=>resolve();tx.onerror=()=>reject(tx.error)})}
-async function putModelChunked(model,bytes,onProgress){
-  const db=await modelDb(),chunkSize=8*1024*1024,totalChunks=Math.ceil(bytes.byteLength/chunkSize);
-  try{
-    for(let index=0;index<totalChunks;index++){
-      const offset=index*chunkSize,end=Math.min(bytes.byteLength,offset+chunkSize),chunk=bytes.slice(offset,end);
-      await new Promise((resolve,reject)=>{const tx=db.transaction('modelChunks','readwrite');tx.objectStore('modelChunks').put({id:model.id,index,offset,bytes:chunk});tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error||Error('Model storage transaction was aborted'))});
-      onProgress(end,bytes.byteLength,index+1,totalChunks);
+const {putModelChunked, getModel, listModels} = createModelStorage(tr);
+function clearPositionAnalysis() {
+  analyzedNode = null;
+  analyzedBoard = null;
+  analyzedKomi = null;
+  ownershipMap = null;
+  showAiOwnership = false;
+  candidateAnalysis = [];
+  candidateAnalysisRounds = 0;
+  selectedCandidateLoc = null;
+  $('#analysis-results').hidden = true;
+  $('#candidate-list').replaceChildren();
+  $('#analysis-board-callout').hidden = true;
+  $('#ai-empty').hidden = false;
+  updateOverlayToggles();
+}
+function terminateEngineWorker() {
+  for (const cancel of [...engineRequestCancels.values()]) cancel();
+  engineWorker?.terminate();
+  engineWorker = null;
+  engineReady = false;
+  engineBoardSize = 0;
+  clearPositionAnalysis();
+  refreshAnalysisButton();
+}
+function engineRequest(type, payload = {}, onAnalysisUpdate) {
+  return new Promise((resolve, reject) => {
+    if (!engineWorker) engineWorker = new Worker(new URL('./engine-worker.js', import.meta.url));
+    const worker = engineWorker;
+    const requestId = ++engineRequestId;
+    const cleanup = () => {
+      worker.removeEventListener('message', onMessage);
+      worker.removeEventListener('error', onError);
+      worker.removeEventListener('messageerror', onMessageError);
+      engineRequestCancels.delete(requestId);
+    };
+    const fail = error => { cleanup(); reject(error); };
+    const onError = event => fail(Error(event.message || 'KataGo worker failed to start'));
+    const onMessageError = () => fail(Error('Could not read the KataGo worker response'));
+    const onMessage = ({data}) => {
+      if (data.requestId !== requestId) return;
+      if (data.type === 'progress') {
+        setModelLoadingStatus(data.stage);
+        return;
+      }
+      if (['analysisProgress', 'analysisCandidate', 'analysisRound'].includes(data.type)) {
+        onAnalysisUpdate?.(data);
+        return;
+      }
+      cleanup();
+      if (data.type === 'error') reject(Error(data.message));
+      else resolve(data.result);
+    };
+    engineRequestCancels.set(requestId, () => fail(Error('KataGo engine request was cancelled')));
+    worker.addEventListener('message', onMessage);
+    worker.addEventListener('error', onError);
+    worker.addEventListener('messageerror', onMessageError);
+    try {
+      worker.postMessage({type, requestId, ...payload}, payload.bytes ? [payload.bytes] : []);
+    } catch (error) { fail(error); }
+  });
+}
+
+function updateCandidateSearch(data) {
+  if (data.type === 'analysisCandidate') {
+    candidateAnalysis = candidateAnalysis.map(c => c.loc === data.candidate.loc ? data.candidate : c)
+      .sort((a, b) => (b.winrate ?? -1) - (a.winrate ?? -1));
+    renderCandidates();
+    drawBoard();
+  } else {
+    candidateAnalysisRounds = data.round;
+    if (data.type === 'analysisProgress') {
+      setAiProgress('candidateSearchProgress', {...data, move: candidateName(data.loc)});
     }
-    await putModel({...model,chunks:totalChunks,storageFormat:'chunked'});
-  }catch(error){
-    try{await new Promise(resolve=>{const tx=db.transaction('modelChunks','readwrite'),store=tx.objectStore('modelChunks'),range=IDBKeyRange.bound([model.id,0],[model.id,Number.MAX_SAFE_INTEGER]),req=store.openCursor(range);req.onsuccess=()=>{const cursor=req.result;if(cursor){cursor.delete();cursor.continue()}};tx.oncomplete=resolve;tx.onerror=resolve})}catch{}
-    throw error;
   }
+  updateCandidateVisitSummary();
 }
-async function getModel(id){
-  const db=await modelDb(),model=await new Promise((resolve,reject)=>{const req=db.transaction('models').objectStore('models').get(id);req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error)});
-  if(!model||!model.chunks)return model;
-  const bytes=new Uint8Array(model.size);let restored=0;
-  await new Promise((resolve,reject)=>{const tx=db.transaction('modelChunks','readonly'),range=IDBKeyRange.bound([id,0],[id,model.chunks-1]),req=tx.objectStore('modelChunks').openCursor(range);req.onsuccess=()=>{const cursor=req.result;if(!cursor){resolve();return}const part=new Uint8Array(cursor.value.bytes);bytes.set(part,cursor.value.offset);restored+=part.byteLength;cursor.continue()};req.onerror=()=>reject(req.error);tx.onerror=()=>reject(tx.error)});
-  if(restored!==model.size)throw Error(tr('modelStorageIncomplete'));
-  model.bytes=bytes.buffer;return model;
-}
-async function listModels(){const db=await modelDb();return new Promise((resolve,reject)=>{const models=[],req=db.transaction('models').objectStore('models').openCursor();req.onsuccess=()=>{const cursor=req.result;if(!cursor){resolve(models);return}const {id,name,size,added}=cursor.value;models.push({id,name,size,added});cursor.continue()};req.onerror=()=>reject(req.error)})}
-function terminateEngineWorker(){for(const cancel of [...engineRequestCancels.values()])cancel();engineWorker?.terminate();engineWorker=null}
-function engineRequest(type,payload={}){return new Promise((resolve,reject)=>{if(!engineWorker)engineWorker=new Worker(new URL('./engine-worker.js',import.meta.url));const worker=engineWorker,requestId=++engineRequestId;const cleanup=()=>{worker.removeEventListener('message',onMessage);worker.removeEventListener('error',onError);worker.removeEventListener('messageerror',onMessageError);engineRequestCancels.delete(requestId)};const cancel=()=>{cleanup();reject(Error('KataGo engine request was cancelled'))};engineRequestCancels.set(requestId,cancel);const onMessage=event=>{if(event.data.requestId!==requestId)return;if(event.data.type==='progress'){setModelLoadingStatus(event.data.stage);return}if(event.data.type==='analysisProgress'){candidateAnalysisRounds=event.data.round;updateCandidateVisitSummary();setAiProgress('candidateSearchProgress',{current:event.data.current,total:event.data.total,move:candidateName(event.data.loc),round:event.data.round});return}if(event.data.type==='analysisRound'){candidateAnalysisRounds=event.data.round;updateCandidateVisitSummary();return}if(event.data.type==='analysisCandidate'){candidateAnalysis=candidateAnalysis.map(candidate=>candidate.loc===event.data.candidate.loc?event.data.candidate:candidate).sort((a,b)=>(b.winrate??-1)-(a.winrate??-1));updateCandidateVisitSummary();renderCandidates();drawBoard();return}cleanup();if(event.data.type==='error')reject(Error(event.data.message));else resolve(event.data.result)};const onError=event=>{cleanup();reject(Error(event.message||'KataGo worker failed to start'))};const onMessageError=()=>{cleanup();reject(Error('Could not read the KataGo worker response'))};worker.addEventListener('message',onMessage);worker.addEventListener('error',onError);worker.addEventListener('messageerror',onMessageError);try{worker.postMessage({type,requestId,...payload},payload.bytes?[payload.bytes]:[])}catch(error){cleanup();reject(error)}})}
-function movesForPath(nodes=path){const rootProps=nodes[0]?.props||{};if(rootProps.AW||rootProps.AE||nodes.slice(1).some(n=>n.props?.AB||n.props?.AW||n.props?.AE))throw Error(tr('unsupportedSetup'));const setup=expandSetup(rootProps.AB,boardSize());if(setup.length===1)throw Error(tr('unsupportedHandicap'));return [...setup.map(([x,y])=>({loc:y*boardSize()+x,color:BLACK})),...nodes.flatMap(node=>{const p=node.props||{};const color=p.B?BLACK:p.W?WHITE:null;if(!color)return[];const value=(p.B||p.W)[0];return [{loc:value===''?-1:(value.charCodeAt(1)-97)*boardSize()+value.charCodeAt(0)-97,color}]})]}
+function gameKomi() { return Number(root.props.KM?.[0] ?? 6.5); }
+function movesForPath(nodes=path){const rootProps=nodes[0]?.props||{};if(rootProps.AW||rootProps.AE||nodes.slice(1).some(n=>n.props?.AB||n.props?.AW||n.props?.AE))throw Error(tr('unsupportedSetup'));const setup=expandSetup(rootProps.AB,boardSize());if(setup.length===1)throw Error(tr('unsupportedHandicap'));return [...setup.map(([x,y])=>({loc:y*boardSize()+x,color:BLACK})),...nodes.flatMap(node=>{const p=node.props||{};const color=p.B?BLACK:p.W?WHITE:null;if(!color)return[];const value=(p.B||p.W)[0];return [{loc:isSgfPass(value, boardSize()) ? -1 : (value.charCodeAt(1)-97)*boardSize()+value.charCodeAt(0)-97,color}]})]}
 async function refreshModels(){const models=await listModels();modelAvailable=models.length>0;const select=$('#model-select');select.innerHTML=models.length?models.map(m=>`<option value="${escapeHtml(m.id)}">${escapeHtml(m.name)} · ${(m.size/1048576).toFixed(1)} MB</option>`).join(''):`<option value="">${tr('noModel')}</option>`;const remembered=localStorage.getItem('ng.last-model-id');if(activeModelId&&models.some(m=>m.id===activeModelId))select.value=activeModelId;else if(remembered&&models.some(m=>m.id===remembered))select.value=remembered;else if(models.length)select.value=models[0].id;const memory=navigator.deviceMemory||4;const tier=memory<4?0:memory<8?1:2;const advice={'zh-Hant':`裝置記憶體粗估 ${memory} GB，建議${['輕量','平衡','高強度'][tier]}模型。此數字僅為瀏覽器估值；棋盤尺寸與可用 GPU 記憶體也會影響載入。模型只存在本機瀏覽器。`,'zh-Hans':`设备内存粗估 ${memory} GB，建议${['轻量','均衡','高强度'][tier]}模型。该数字仅为浏览器估值；棋盘大小和 GPU 可用内存也会影响加载。模型只保存在本地浏览器。`,en:`Estimated device memory: ${memory} GB. Suggested tier: ${['light','balanced','strong'][tier]}. This browser estimate is approximate; board size and GPU memory also affect model loading. Models stay in this browser.`,ja:`端末メモリーの推定は ${memory} GB。おすすめ：${['軽量','標準','高性能'][tier]}モデル。ブラウザーによる概算で、盤サイズとGPUメモリーも読み込みに影響します。モデルはこのブラウザーに保存されます。`,ko:`기기 메모리 추정치 ${memory} GB. 추천 모델: ${['경량','균형','고성능'][tier]}. 브라우저 추정값이며 바둑판 크기와 GPU 메모리도 로딩에 영향을 줍니다. 모델은 이 브라우저에 저장됩니다.`};$('#model-advice').textContent=advice[language]||advice.en;refreshAiSetup();return models}
 function storedAiConfig(){try{const value=localStorage.getItem('ng.ai-profile');return value?validateAiConfig(JSON.parse(value)):null}catch{return null}}
-function refreshAiSetup(){const config=storedAiConfig();const modelReady=modelAvailable||Boolean(activeModelId);$('#ai-model-status').textContent=modelReady?tr('setupReady'):tr('setupMissing');$('#ai-profile-status').textContent=config?tr('setupReady'):tr('setupMissing');$('#ai-model-status').className=modelReady?'is-ready':'is-missing';$('#ai-profile-status').className=config?'is-ready':'is-missing';$('#ai-setup-message').textContent=gpuState==='available'&&!config?tr('gpuReadySetupPrompt'):gpuState==='available'&&!modelReady?tr('gpuReadyModelPrompt'):gpuState==='available'?tr('gpuReadyComplete'):tr('gpuBeforeSetup');$('#ai-config-status').textContent=config?tr('profileReady'):tr('profileMissing');$('#export-ai-config').disabled=!config;if(config){$('#search-visits').value=String(config.searchVisits);$('#search-time').value=String(config.maxSearchTimeMs)}}
+function refreshAiSetup(){const config=storedAiConfig();const modelReady=modelAvailable||Boolean(activeModelId);$('#ai-model-status').textContent=modelReady?tr('setupReady'):tr('setupMissing');$('#ai-profile-status').textContent=config?tr('setupReady'):tr('setupMissing');$('#ai-model-status').className=modelReady?'is-ready':'is-missing';$('#ai-profile-status').className=config?'is-ready':'is-missing';$('#ai-setup-message').textContent=gpuState==='available'&&!config?tr('gpuReadySetupPrompt'):gpuState==='available'&&!modelReady?tr('gpuReadyModelPrompt'):gpuState==='available'?tr('gpuReadyComplete'):tr('gpuBeforeSetup');$('#ai-config-status').textContent=config?tr('profileReady'):tr('profileMissing');$('#export-ai-config').disabled=!config}
+function fillAiProfileFields(config) {
+  $('#search-visits').value = String(config.searchVisits);
+  $('#search-time').value = String(config.maxSearchTimeMs);
+}
 function saveAiConfig(config){const valid=validateAiConfig(config);localStorage.setItem('ng.ai-profile',JSON.stringify(valid));refreshAiSetup();return valid}
 function downloadAiConfig(){const config=saveAiConfig({format:DEFAULT_AI_CONFIG.format,version:DEFAULT_AI_CONFIG.version,searchVisits:Number($('#search-visits').value),maxSearchTimeMs:Number($('#search-time').value)});const blob=new Blob([JSON.stringify(config,null,2)+'\n'],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='nightygo-ai-profile.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
-async function importAiConfig(file){if(!file)return;let config;try{config=parseAiConfig(await file.text())}catch(error){const key=({'AI profile is not valid JSON.':'profileJsonInvalid','AI profile must be a JSON object.':'profileObjectInvalid','Unsupported AI profile format or version.':'profileVersionInvalid','searchVisits must be 32, 128, or 512.':'profileVisitsInvalid','maxSearchTimeMs must be 5000, 15000, or 30000.':'profileTimeInvalid'})[error.message]||'profileImportFailed';throw Error(tr(key))}saveAiConfig(config);toast(tr('profileImported'))}
-async function openModelCenter(){resumeAnalysisAfterConfig=analysisActive;if(analysisTask){if(analysisActive)stopAnalysis();await analysisTask}await refreshModels();$('#model-dialog').showModal()}
-async function importModel(file){if(!file)return;if(!file.name.endsWith('.bin.gz'))throw Error(tr('modelImportExtension'));const bytes=await file.arrayBuffer();if(bytes.byteLength<1024||new Uint8Array(bytes,0,2)[0]!==31||new Uint8Array(bytes,0,2)[1]!==139)throw Error(tr('invalidModelFile'));const id=crypto.randomUUID?.()||`${Date.now()}-${Math.random()}`;await putModel({id,name:file.name,size:bytes.byteLength,bytes,added:Date.now()});activeModelId=id;localStorage.setItem('ng.last-model-id',id);await refreshModels();toast(tr('modelSavedLocal'))}
+async function importAiConfig(file){if(!file)return;let config;try{config=parseAiConfig(await file.text())}catch(error){const key=({'AI profile is not valid JSON.':'profileJsonInvalid','AI profile must be a JSON object.':'profileObjectInvalid','Unsupported AI profile format or version.':'profileVersionInvalid','searchVisits must be 32, 128, or 512.':'profileVisitsInvalid','maxSearchTimeMs must be 5000, 15000, or 30000.':'profileTimeInvalid'})[error.message]||'profileImportFailed';throw Error(tr(key))}saveAiConfig(config);fillAiProfileFields(config);toast(tr('profileImported'))}
+async function openModelCenter(){resumeAnalysisAfterConfig=analysisActive;if(analysisTask){if(analysisActive)stopAnalysis();await analysisTask}try{await refreshModels()}catch(error){$('#model-advice').textContent=error.message}fillAiProfileFields(storedAiConfig() || DEFAULT_AI_CONFIG);$('#model-dialog').showModal()}
+async function importModel(file) {
+  if (!file) return;
+  const input = $('#model-file');
+  const status = $('#model-advice');
+  input.disabled = true;
+  try {
+    if (!file.name.toLowerCase().endsWith('.bin.gz')) throw Error(tr('modelImportExtension'));
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    if (bytes.length < 1024 || bytes[0] !== 31 || bytes[1] !== 139) throw Error(tr('invalidModelFile'));
+    const id = crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`;
+    status.textContent = tr('savingModelLocally');
+    await putModelChunked({id, name: file.name, size: bytes.length, added: Date.now()}, bytes, (saved, total, chunk, totalChunks) => {
+      status.textContent = tr('storageProgress', {
+        loaded: (saved / 1048576).toFixed(1), total: (total / 1048576).toFixed(1),
+        percent: Math.round(saved / total * 100), chunk, totalChunks
+      });
+    });
+    activeModelId = id;
+    localStorage.setItem('ng.last-model-id', id);
+    await refreshModels();
+    toast(tr('modelSavedLocal'));
+  } catch (error) {
+    status.textContent = error.name === 'QuotaExceededError' ? tr('modelStorageInsufficient') : error.message;
+  } finally {
+    input.value = '';
+    input.disabled = false;
+  }
+}
 async function downloadOfficialModel(url,name){
   const dialog=$('#model-loading-dialog');beginModelProgress('download');
   try{
@@ -204,30 +293,114 @@ function candidateName(loc){return loc===boardSize()*boardSize()?tr('pass'):`${'
 function updateCandidateVisitSummary(){const completed=candidateAnalysis.filter(candidate=>candidate.winrate!==null);const visits=completed.reduce((sum,candidate)=>sum+candidate.visits,0);$('#visits').textContent=completed.length?tr('candidateSearchSummary',{candidates:completed.length,visits,rounds:candidateAnalysisRounds}):candidateAnalysis.length?`0 / ${candidateAnalysis.length}`:tr('neuralInference')}
 function updateBoardCandidateCallout(){const callout=$('#analysis-board-callout');if(!callout)return;const candidate=candidateAnalysis.find(item=>item.loc===selectedCandidateLoc&&item.winrate!==null)||candidateAnalysis.find(item=>item.winrate!==null);if(!candidate||analysisOutputType!=='position'||$('#analysis-results').hidden){callout.hidden=true;return}callout.textContent=`${candidateName(candidate.loc)} · ${(candidate.winrate*100).toFixed(1)}%`;callout.hidden=false}
 function renderCandidates(){const list=$('#candidate-list');list.innerHTML=candidateAnalysis.map((candidate,index)=>`<li class="candidate-row${candidate.loc===selectedCandidateLoc?' selected':''}" role="button" tabindex="0" aria-pressed="${candidate.loc===selectedCandidateLoc}" data-candidate-loc="${candidate.loc}"><span class="candidate-rank">${index+1}</span><b class="candidate-coordinate">${candidateName(candidate.loc)}</b><span class="candidate-search-visits">${candidate.visits?tr('candidateVisits',{visits:candidate.visits}):'—'}</span><span class="candidate-winrate">${candidate.winrate===null?tr('searching'):`${(candidate.winrate*100).toFixed(1)}%`}</span></li>`).join('');list.querySelectorAll('.candidate-row').forEach(row=>{const select=()=>{selectedCandidateLoc=Number(row.dataset.candidateLoc);renderCandidates();drawBoard()};row.onclick=select;row.onkeydown=event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();select()}}});updateBoardCandidateCallout()}
-function refreshAnalysisButton(){const button=$('#analyze-position');if(!button)return;button.textContent=tr(analysisActive?'stopAnalysis':'analyzePosition');button.setAttribute('aria-pressed',String(analysisActive));button.classList.toggle('is-running',analysisActive);button.disabled=!engineReady||analysisStopping}
-function requestAnalysisRestart(){if(!analysisActive||analysisRestartPending)return;analysisRestartPending=true;analysisRunId++;engineWorker?.postMessage({type:'stopAnalysis'})}
-function stopAnalysis(){if(!analysisActive)return;analysisActive=false;analysisStopping=true;analysisRunId++;engineWorker?.postMessage({type:'stopAnalysis'});refreshAnalysisButton();hideAiProgress()}
+function refreshAnalysisButton(){const button=$('#analyze-position');if(!button)return;button.textContent=tr(analysisActive?'stopAnalysis':'analyzePosition');button.setAttribute('aria-pressed',String(analysisActive));button.classList.toggle('is-running',analysisActive);button.disabled=!engineReady||analysisStopping||exclusiveAiAction;
+  $('#review-game').disabled = $('#play-ai').disabled = !engineReady || exclusiveAiAction;
+  $('#model-center').disabled = exclusiveAiAction;
+}
+function requestAnalysisRestart(){if(!analysisActive||analysisRestartPending)return;analysisRestartPending=true;analysisRunId++;setAiProgress('analysisRunning');engineWorker?.postMessage({type:'stopAnalysis', throughRequestId:engineRequestId})}
+function stopAnalysis(){if(!analysisActive)return;analysisActive=false;analysisStopping=true;analysisRunId++;engineWorker?.postMessage({type:'stopAnalysis', throughRequestId:engineRequestId});refreshAnalysisButton();hideAiProgress()}
 async function analyzePositionPass(runId){
-  const target=current,targetBoard=board,targetPlayer=toPlay,targetKomi=Number(root.props.KM?.[0]||7.5);analysisTargetNode=target;analysisTargetBoard=targetBoard;analysisTargetKomi=targetKomi;setAiProgress('analysisRunning');
+  const target=current,targetBoard=board,targetPlayer=toPlay,targetKomi=gameKomi();analysisTargetNode=target;analysisTargetBoard=targetBoard;analysisTargetKomi=targetKomi;setAiProgress('analysisRunning');
   const moves=movesForPath(),initial=await engineRequest('analyze',{moves,toPlay:targetPlayer,komi:targetKomi});
-  if(!analysisActive||runId!==analysisRunId||current!==target||board!==targetBoard||toPlay!==targetPlayer||Number(root.props.KM?.[0]||7.5)!==targetKomi)return;
+  if(!analysisActive||runId!==analysisRunId||current!==target||board!==targetBoard||toPlay!==targetPlayer||gameKomi()!==targetKomi)return;
   const top=legalCandidates(initial.candidates),config=storedAiConfig()||DEFAULT_AI_CONFIG;
-  analyzedNode=target;analyzedBoard=targetBoard;analysisOutputType='position';lastAnalysisScore=initial.value[4];ownershipMap=initial.ownership;showAiOwnership=!!ownershipMap?.length;updateOverlayToggles();
+  analyzedNode=target;analyzedBoard=targetBoard;analyzedKomi=targetKomi;analysisOutputType='position';lastAnalysisScore=initial.value[4];ownershipMap=initial.ownership;showAiOwnership=ownershipEnabled && Boolean(ownershipMap?.length);updateOverlayToggles();
   candidateAnalysis=top.map(candidate=>({loc:candidate.loc,score:candidate.score,winrate:null,visits:0}));selectedCandidateLoc=null;drawBoard();$('#ai-empty').hidden=true;$('#analysis-results').hidden=false;
   updateCandidateVisitSummary();const win=initial.value[toPlay===WHITE?0:1];$('#winrate').textContent=`${(win*100).toFixed(1)}%`;
   $('#score-lead').textContent=tr('scoreLeadWhite',{score:`${initial.value[4]>=0?'+':''}${initial.value[4].toFixed(1)}`});renderCandidates();
   if(!top.length)return;
-  const result=await engineRequest('analyzeCandidates',{moves,toPlay:targetPlayer,komi:targetKomi,candidateLocs:top.map(candidate=>candidate.loc),visits:config.searchVisits,maxSearchTimeMs:config.maxSearchTimeMs,continuous:true});
-  if(runId===analysisRunId&&current===target&&board===targetBoard&&toPlay===targetPlayer&&Number(root.props.KM?.[0]||7.5)===targetKomi){candidateAnalysis=result.candidates;candidateAnalysisRounds=result.rounds;updateCandidateVisitSummary();renderCandidates();drawBoard()}
+  const result=await engineRequest('analyzeCandidates',{moves,toPlay:targetPlayer,komi:targetKomi,candidateLocs:top.map(candidate=>candidate.loc),visits:config.searchVisits,maxSearchTimeMs:config.maxSearchTimeMs,continuous:true}, data => {
+    if (analysisActive && runId === analysisRunId) updateCandidateSearch(data);
+  });
+  if(runId===analysisRunId&&current===target&&board===targetBoard&&toPlay===targetPlayer&&gameKomi()===targetKomi){candidateAnalysis=result.candidates;candidateAnalysisRounds=result.rounds;updateCandidateVisitSummary();renderCandidates();drawBoard()}
 }
-async function runAnalysisSession(){
-  try{
-    while(analysisActive){analysisRestartPending=false;const runId=++analysisRunId;await analyzePositionPass(runId);if(!analysisActive||!analysisRestartPending)break}
-  }catch(error){if(analysisActive)toast(error.message)}finally{analysisActive=false;analysisStopping=false;analysisTargetNode=null;analysisTargetBoard=null;analysisTargetKomi=null;analysisRestartPending=false;refreshAnalysisButton();hideAiProgress()}
+async function runAnalysisSession() {
+  try {
+    while (analysisActive) {
+      analysisRestartPending = false;
+      const runId = ++analysisRunId;
+      try {
+        await analyzePositionPass(runId);
+      } catch (error) {
+        if (runId === analysisRunId) throw error;
+      }
+      if (!analysisRestartPending) break;
+    }
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    analysisActive = false;
+    analysisStopping = false;
+    analysisTargetNode = analysisTargetBoard = analysisTargetKomi = null;
+    analysisRestartPending = false;
+    refreshAnalysisButton();
+    hideAiProgress();
+  }
 }
-function toggleAnalysis(){if(analysisActive){stopAnalysis();return}if(analysisTask)return;analysisActive=true;refreshAnalysisButton();candidateAnalysisRounds=0;const task=runAnalysisSession();analysisTask=task;task.finally(()=>{if(analysisTask===task)analysisTask=null})}
-async function playAiMove(){const resume=analysisActive;if(analysisTask){if(analysisActive)stopAnalysis();await analysisTask}const target=current,targetBoard=board,targetPlayer=toPlay,targetKomi=Number(root.props.KM?.[0]||7.5),button=$('#play-ai');button.disabled=true;setAiProgress('searchRunning');try{const config=storedAiConfig();if(!config)throw Error(tr('needProfile'));const result=await engineRequest('search',{moves:movesForPath(),toPlay:targetPlayer,komi:targetKomi,visits:config.searchVisits,maxSearchTimeMs:config.maxSearchTimeMs});if(current!==target||board!==targetBoard||toPlay!==targetPlayer||Number(root.props.KM?.[0]||7.5)!==targetKomi)return;const loc=result.best;if(loc<0)appendMove(0,0,true);else appendMove(loc%boardSize(),Math.floor(loc/boardSize()));toast(tr('aiSearchSummary',{visits:result.visits,winrate:Math.round(result.winrate*100)}))}catch(error){toast(error.message)}finally{button.disabled=!engineReady;hideAiProgress();if(resume&&engineReady)toggleAnalysis()}}
-async function reviewGame(){const resume=analysisActive;if(analysisTask){if(analysisActive)stopAnalysis();await analysisTask}if(!engineWorker){toast(tr('loadModelFirst'));return}const line=[root];while(line.at(-1).children?.length)line.push(line.at(-1).children[0]);if(line.length>251){toast(tr('reviewLimit'));return}const button=$('#review-game');button.disabled=true;setAiProgress('reviewProgress',{current:0,total:line.length-1});const findings=[];try{for(let i=0;i<line.length;i++){const nodes=line.slice(0,i+1),moves=movesForPath(nodes),side=nodes.slice(1).reduce((p,node)=>node.props.B?WHITE:node.props.W?BLACK:p,nodes[0].props.PL?.[0]==='W'?WHITE:BLACK);const value=await engineRequest('analyze',{moves,toPlay:side,komi:Number(root.props.KM?.[0]||7.5)});findings.push({move:i,wr:value.value[0]});if(i%3===0||i===line.length-1)setAiProgress('reviewProgress',{current:i,total:line.length-1})}reviewResults=findings.slice(1).map((x,i)=>({...x,swing:Math.abs(x.wr-findings[i].wr)})).filter(x=>x.swing>.12).sort((a,b)=>b.swing-a.swing).slice(0,8);reviewMoveCount=findings.length-1;reviewLine=line;analysisOutputType='review';ownershipMap=null;showAiOwnership=false;updateOverlayToggles();$('#analysis-results').hidden=false;$('#ai-empty').hidden=true;renderReviewResults();$('#engine-message').textContent=tr('reviewComplete',{moves:reviewMoveCount})}catch(error){toast(error.message)}finally{button.disabled=!engineReady;hideAiProgress();if(resume&&engineReady)toggleAnalysis()}}
+function toggleAnalysis(){if(exclusiveAiAction||!engineReady)return;if(analysisActive){stopAnalysis();return}if(analysisTask)return;analysisActive=true;refreshAnalysisButton();candidateAnalysisRounds=0;const task=runAnalysisSession();analysisTask=task;task.finally(()=>{if(analysisTask===task)analysisTask=null})}
+async function withExclusiveAiAction(action) {
+  if (exclusiveAiAction || !engineReady) return;
+  exclusiveAiAction = true;
+  const resume = analysisActive;
+  refreshAnalysisButton();
+  try {
+    if (analysisActive) stopAnalysis();
+    await analysisTask;
+    await action();
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    exclusiveAiAction = false;
+    hideAiProgress();
+    refreshAnalysisButton();
+    if (resume && engineReady) toggleAnalysis();
+  }
+}
+
+function playAiMove() {
+  return withExclusiveAiAction(async () => {
+    const target = current, originalBoard = board, player = toPlay, komi = gameKomi();
+    const config = storedAiConfig();
+    if (!config) throw Error(tr('needProfile'));
+    setAiProgress('searchRunning');
+    const result = await engineRequest('search', {
+      moves: movesForPath(), toPlay: player, komi,
+      visits: config.searchVisits, maxSearchTimeMs: config.maxSearchTimeMs,
+    });
+    if (target !== current || originalBoard !== board || player !== toPlay || komi !== gameKomi()) return;
+    if (result.best < 0) appendMove(0, 0, true);
+    else appendMove(result.best % boardSize(), Math.floor(result.best / boardSize()));
+    toast(tr('aiSearchSummary', {visits: result.visits, winrate: Math.round(result.winrate * 100)}));
+  });
+}
+
+function reviewGame() {
+  const line = [root];
+  while (line.at(-1).children?.length) line.push(line.at(-1).children[0]);
+  if (line.length > 251) { toast(tr('reviewLimit')); return; }
+  return withExclusiveAiAction(async () => {
+    const komi = gameKomi();
+    const findings = [];
+    let player = Number(root.props.HA?.[0]) >= 2 ? WHITE : BLACK;
+    for (let i = 0; i < line.length; i++) {
+      if (root !== line[0] || komi !== gameKomi()) return;
+      const props = line[i].props;
+      if (props.PL) player = props.PL[0] === 'W' ? WHITE : BLACK;
+      if (props.B) player = WHITE;
+      if (props.W) player = BLACK;
+      setAiProgress('reviewProgress', {current: i, total: line.length-1});
+      const result = await engineRequest('analyze', {moves: movesForPath(line.slice(0,i+1)), toPlay: player, komi});
+      findings.push({move: i, wr: result.value[0]});
+    }
+    if (root !== line[0] || komi !== gameKomi()) return;
+    reviewResults = findings.slice(1).map((v,i) => ({...v, swing: Math.abs(v.wr-findings[i].wr)}))
+      .filter(v => v.swing > .12).sort((a,b) => b.swing-a.swing).slice(0,8);
+    reviewMoveCount = line.length-1;
+    reviewLine = line;
+    renderReviewResults();
+    $('#review-findings').open = true;
+  });
+}
 const AI_UI_I18N={
   'zh-Hant':{analyzePosition:'分析局面',playAiMove:'AI 落子',movePanel:'拖曳移動面板',loadingModel:'正在載入模型',loadingModelHint:'大型模型需要一些時間初始化。請保持此頁面開啟。',initializingEngine:'正在初始化推論引擎…',loadingNetwork:'正在載入神經網路…',modelLoaded:'KataGo 模型已載入',modelLoadedGpu:'KataGo v{version} 已載入。推論在本機執行；使用 WebGPU。',modelLoadedCpu:'KataGo v{version} 已載入。此裝置使用 CPU，分析可能較慢。',modelImportExtension:'請選擇 KataGo .bin.gz 網路檔',invalidModelFile:'這不是有效的 gzip 模型檔',modelSavedLocal:'模型已儲存於本機瀏覽器',neuralInference:'神經網路推論',scoreLeadWhite:'{score} 白方目差',aiSearchSummary:'AI 搜尋 {visits} 次 · {winrate}%',loadModelFirst:'請先載入 KataGo 模型',reviewLimit:'整盤覆盤目前最多處理 250 手',reviewProgress:'整盤覆盤中：{current}/{total}',reviewNoSwing:'主線各手勝率已計算，未發現大於 12% 的變化。',reviewComplete:'完成 {moves} 手主線覆盤；點擊列表可跳到變化較大的手。',unsupportedSetup:'AI 暫不支援棋盤編輯或白子初始設定；一般對局和標準黑棋讓子可分析。',unsupportedHandicap:'AI 僅支援標準兩子以上讓子設定。',boardSizeChanged:'棋盤尺寸已變更，請重新載入模型。',positionChanged:'局面已變更，請重新分析。'},
   'zh-Hans':{analyzePosition:'分析局面',playAiMove:'AI 落子',movePanel:'拖动以移动面板',loadingModel:'正在加载模型',loadingModelHint:'大型模型初始化需要一些时间。请保持此页面开启。',initializingEngine:'正在初始化推理引擎…',loadingNetwork:'正在加载神经网络…',modelLoaded:'KataGo 模型已加载',modelLoadedGpu:'KataGo v{version} 已加载。推理在本地运行；使用 WebGPU。',modelLoadedCpu:'KataGo v{version} 已加载。此设备使用 CPU，分析可能较慢。',modelImportExtension:'请选择 KataGo .bin.gz 网络文件',invalidModelFile:'这不是有效的 gzip 模型文件',modelSavedLocal:'模型已保存到本地浏览器',neuralInference:'神经网络推理',scoreLeadWhite:'{score} 白方目差',aiSearchSummary:'AI 搜索 {visits} 次 · {winrate}%',loadModelFirst:'请先加载 KataGo 模型',reviewLimit:'整盘复盘目前最多处理 250 手',reviewProgress:'整盘复盘中：{current}/{total}',reviewNoSwing:'主线各手胜率已计算，未发现大于 12% 的变化。',reviewComplete:'已完成 {moves} 手主线复盘；点击列表可跳到变化较大的手。',unsupportedSetup:'AI 暂不支持棋盘编辑或白棋初始设置；一般对局和标准黑棋让子可以分析。',unsupportedHandicap:'AI 仅支持标准两子以上让子设置。',boardSizeChanged:'棋盘大小已更改，请重新加载模型。',positionChanged:'局面已更改，请重新分析。'},
@@ -275,12 +448,24 @@ for(const [locale,values] of Object.entries({
   'zh-Hant':{stopAnalysis:'停止分析',candidateSearchProgress:'第 {round} 輪 · 正在搜尋候選點 {current}/{total}：{move}…',candidateSearchSummary:'搜尋 {candidates} 個候選手 · 第 {rounds} 輪 · 共 {visits} 次'},
   'zh-Hans':{stopAnalysis:'停止分析',candidateSearchProgress:'第 {round} 轮 · 正在搜索候选点 {current}/{total}：{move}…',candidateSearchSummary:'搜索 {candidates} 个候选手 · 第 {rounds} 轮 · 共 {visits} 次'},
   en:{stopAnalysis:'Stop analysis',candidateSearchProgress:'Round {round} · Searching candidate {current}/{total}: {move}…',candidateSearchSummary:'Searched {candidates} candidate moves · round {rounds} · {visits} visits'},
-  ja:{stopAnalysis:'解析を停止',candidateSearchProgress:'{round}巡目 · 候補 {current}/{total} を探索中：{move}…',candidateSearchSummary:'{candidates}候補を探索 · {round}巡目 · 合計{visits}回'},
-  ko:{stopAnalysis:'분석 중지',candidateSearchProgress:'{round}라운드 · 후보 {current}/{total} 탐색 중: {move}…',candidateSearchSummary:'후보 {candidates}개 탐색 · {round}라운드 · 총 {visits}회'}
+  ja:{stopAnalysis:'解析を停止',candidateSearchProgress:'{round}巡目 · 候補 {current}/{total} を探索中：{move}…',candidateSearchSummary:'{candidates}候補を探索 · {rounds}巡目 · 合計{visits}回'},
+  ko:{stopAnalysis:'분석 중지',candidateSearchProgress:'{round}라운드 · 후보 {current}/{total} 탐색 중: {move}…',candidateSearchSummary:'후보 {candidates}개 탐색 · {rounds}라운드 · 총 {visits}회'}
 }))Object.assign(I18N[locale],values);
 function setAiProgress(key,values={}){aiProgressState={key,values};$('#ai-progress-message').textContent=tr(key,values);$('#ai-progress').hidden=false}
 function hideAiProgress(){aiProgressState=null;$('#ai-progress').hidden=true}
-function renderReviewResults(){const list=$('#candidate-list');list.innerHTML=reviewResults.length?reviewResults.map(x=>`<li><button class="review-jump" data-move="${x.move}">${tr('reviewSwing',{move:x.move,swing:(x.swing*100).toFixed(1)})}</button></li>`).join(''):`<li>${tr('reviewNoSwing')}</li>`;document.querySelectorAll('.review-jump').forEach(button=>button.onclick=()=>navigateTo(reviewLine[Number(button.dataset.move)]));updateBoardCandidateCallout()}
+function renderReviewResults() {
+  const section = $('#review-findings');
+  section.hidden = !reviewLine.length || reviewLine[0] !== root;
+  if (section.hidden) return;
+  section.querySelector('summary').textContent = tr('reviewComplete', {moves: reviewMoveCount});
+  const list = section.querySelector('ol');
+  list.innerHTML = reviewResults.length ? reviewResults.map(({move, swing}) =>
+    `<li><button class="review-jump" data-move="${move}">${tr('reviewSwing', {move, swing: (swing*100).toFixed(1)})}</button></li>`
+  ).join('') : `<li>${tr('reviewNoSwing')}</li>`;
+  for (const button of list.querySelectorAll('button')) {
+    button.onclick = () => navigateTo(reviewLine[Number(button.dataset.move)]);
+  }
+}
 for(const [locale,values] of Object.entries({
   'zh-Hant':{downloadProgressSteps:'模型安裝進度',modelProgressBar:'模型安裝進度',downloadStepConnect:'連線模型來源',downloadStepTransfer:'下載模型',downloadStepStorage:'寫入瀏覽器儲存空間',downloadStepLoad:'載入 AI 引擎',downloadConnected:'已連線，開始下載模型…',downloadProgressIndeterminate:'伺服器未提供檔案大小；正在持續下載',storageProgress:'已寫入 {loaded}/{total} MB · {percent}% · 批次 {chunk}/{totalChunks}',modelStorageIncomplete:'本機模型資料不完整，請重新下載。'},
   'zh-Hans':{downloadProgressSteps:'模型安装进度',modelProgressBar:'模型安装进度',downloadStepConnect:'连接模型来源',downloadStepTransfer:'下载模型',downloadStepStorage:'写入浏览器存储空间',downloadStepLoad:'加载 AI 引擎',downloadConnected:'已连接，开始下载模型…',downloadProgressIndeterminate:'服务器未提供文件大小；正在持续下载',storageProgress:'已写入 {loaded}/{total} MB · {percent}% · 批次 {chunk}/{totalChunks}',modelStorageIncomplete:'本地模型数据不完整，请重新下载。'},
@@ -288,7 +473,7 @@ for(const [locale,values] of Object.entries({
   ja:{downloadProgressSteps:'モデルのインストール状況',modelProgressBar:'モデルのインストール状況',downloadStepConnect:'モデル配信元に接続',downloadStepTransfer:'モデルをダウンロード',downloadStepStorage:'ブラウザーに保存',downloadStepLoad:'AIエンジンを読み込み',downloadConnected:'接続しました。モデルをダウンロードしています…',downloadProgressIndeterminate:'ファイルサイズが不明なため、ダウンロード中の表示を続けます。',storageProgress:'保存済み {loaded}/{total} MB · {percent}% · {chunk}/{totalChunks} バッチ',modelStorageIncomplete:'ローカルモデルデータが不完全です。もう一度ダウンロードしてください。'},
   ko:{downloadProgressSteps:'모델 설치 진행 상황',modelProgressBar:'모델 설치 진행 상황',downloadStepConnect:'모델 서버 연결',downloadStepTransfer:'모델 다운로드',downloadStepStorage:'브라우저 저장 공간에 쓰기',downloadStepLoad:'AI 엔진 불러오기',downloadConnected:'연결되었습니다. 모델을 다운로드합니다…',downloadProgressIndeterminate:'파일 크기를 알 수 없어 다운로드 진행 애니메이션을 표시합니다.',storageProgress:'저장됨 {loaded}/{total} MB · {percent}% · {chunk}/{totalChunks} 묶음',modelStorageIncomplete:'로컬 모델 데이터가 불완전합니다. 다시 다운로드해 주세요.'}
 }))Object.assign(I18N[locale],values);
-function refreshAiLanguage(){refreshAnalysisButton();if(aiProgressState)$('#ai-progress-message').textContent=tr(aiProgressState.key,aiProgressState.values);if($('#model-loading-dialog').open){$('#model-loading-status').textContent=tr(modelLoadingStage,modelLoadingValues);$('#model-loading-title').textContent=tr(modelProgressMode==='download'?'downloadingModel':'loadingModel');$('#model-progress-detail').textContent=modelProgressDetailKey?tr(modelProgressDetailKey,modelProgressDetailValues):''}if(engineReady)$('#engine-message').textContent=tr(modelBackendGpu?'modelLoadedGpu':'modelLoadedCpu',{version:modelVersion});if(!$('#analysis-results').hidden){if(analysisOutputType==='position'){updateCandidateVisitSummary();$('#score-lead').textContent=tr('scoreLeadWhite',{score:`${lastAnalysisScore>=0?'+':''}${lastAnalysisScore.toFixed(1)}`});renderCandidates()}else{renderReviewResults();$('#engine-message').textContent=tr('reviewComplete',{moves:reviewMoveCount})}}}
+function refreshAiLanguage(){renderReviewResults();refreshAnalysisButton();if(aiProgressState)$('#ai-progress-message').textContent=tr(aiProgressState.key,aiProgressState.values);if($('#model-loading-dialog').open){$('#model-loading-status').textContent=tr(modelLoadingStage,modelLoadingValues);$('#model-loading-title').textContent=tr(modelProgressMode==='download'?'downloadingModel':'loadingModel');$('#model-progress-detail').textContent=modelProgressDetailKey?tr(modelProgressDetailKey,modelProgressDetailValues):''}if(engineReady)$('#engine-message').textContent=tr(modelBackendGpu?'modelLoadedGpu':'modelLoadedCpu',{version:modelVersion});if(!$('#analysis-results').hidden){if(analysisOutputType==='position'){updateCandidateVisitSummary();$('#score-lead').textContent=tr('scoreLeadWhite',{score:`${lastAnalysisScore>=0?'+':''}${lastAnalysisScore.toFixed(1)}`});renderCandidates()}else{renderReviewResults();$('#engine-message').textContent=tr('reviewComplete',{moves:reviewMoveCount})}}}
 function updateModelStepper(active,completeThrough=({connect:-1,download:0,save:1,load:2,complete:3}[active]??-1)){
   const steps=document.querySelectorAll('#model-progress-steps li');
   steps.forEach((step,index)=>{const state=index<=completeThrough?'complete':step.dataset.step===active?'active':'pending';step.dataset.state=state;if(state==='active')step.setAttribute('aria-current','step');else step.removeAttribute('aria-current');step.querySelector('.step-indicator').textContent=state==='complete'?'✓':String(index+1)});
@@ -305,6 +490,11 @@ function beginModelProgress(mode='download'){
 }
 function finishModelProgress(){setModelProgressStage('complete',{status:'modelInstalled',value:1,max:1});}
 function setModelLoadingStatus(key){modelLoadingStage=key;modelLoadingValues={};$('#model-loading-status').textContent=tr(key);if(modelProgressMode==='download'||modelProgressMode==='foreground'||modelProgressMode==='background')updateModelStepper('load')}
+Object.assign(I18N['zh-Hant'], {modelStorageBlocked:'另一個 NightyGo 分頁正在使用舊版模型庫。請關閉其他 NightyGo 分頁後再試。'});
+Object.assign(I18N['zh-Hans'], {modelStorageBlocked:'另一个 NightyGo 标签页正在使用旧版模型库。请关闭其他 NightyGo 标签页后重试。'});
+Object.assign(I18N.en, {modelStorageBlocked:'An older NightyGo tab is using the model library. Close the other NightyGo tabs and try again.'});
+Object.assign(I18N.ja, {modelStorageBlocked:'別の NightyGo タブで旧バージョンのモデルライブラリーが開いています。他の NightyGo タブを閉じてから再度お試しください。'});
+Object.assign(I18N.ko, {modelStorageBlocked:'다른 NightyGo 탭에서 이전 모델 라이브러리를 사용하고 있습니다. 다른 NightyGo 탭을 닫고 다시 시도하세요.'});
 function tr(key,values={}){let value=I18N[language]?.[key]||I18N.en[key]||key;for(const [name,replacement] of Object.entries(values))value=value.replaceAll(`{${name}}`,String(replacement));return value}
 function readStore(key,fallback){try{return JSON.parse(localStorage.getItem(key)) ?? fallback}catch{return fallback}}
 function writeStore(key,value){try{localStorage.setItem(key,JSON.stringify(value))}catch{toast(tr('storageLimit'))}}
@@ -312,33 +502,104 @@ function applyLanguage(){document.documentElement.lang=language;document.title=t
 function openMailDialog(){const input=$('#mail-address');input.value=localStorage.getItem('ng.mail-address')||'';$('#mail-dialog').showModal();input.focus()}
 function sendGameMail(){const input=$('#mail-address'),form=$('#mail-dialog form');if(!form.reportValidity())return;const address=input.value.trim();if(!address)return;localStorage.setItem('ng.mail-address',address);const sgf=serializeCollection();const subject=tr('mailSubject'),body=`${tr('mailBody')}\n\n${sgf}`;const url=`mailto:${encodeURIComponent(address)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;if(url.length>7000){toast(tr('mailTooLarge'));return}$('#mail-dialog').close();window.location.href=url}
 function makeRoot(size=19){return {props:{GM:['1'],FF:['4'],CA:['UTF-8'],AP:['NightyGo Web:0.1'],SZ:[String(size)],KM:['6.5']},children:[]}}
-function setupNew(size=Number(prefs.size)){if(root&&dirty)saveLibrary(false);pointer=null;touchPreviewAnchor=null;root=makeRoot(size);collectionTrees=[root];current=root;path=[root];dirty=false;rebuild();refresh();writeStore('ng.autosave',serializeCollection())}
-function boardSize(){let value=root?.props?.SZ?.[0]||'19';if(value.includes(':'))value=value.split(':')[0];return Math.max(2,Math.min(25,Number(value)||19))}
-function emptyBoard(size=boardSize()){return Array.from({length:size},()=>Array(size).fill(0))}
+function setupNew(size=Number(prefs.size), persist=true){if(root&&dirty)saveLibrary(false);pointer=null;touchPreviewAnchor=null;root=makeRoot(size);collectionTrees=[root];current=root;path=[root];dirty=false;rebuild();refresh();if(persist)saveRecovery()}
+function boardSize(){return sgfBoardSize(root)}
 function neighbors(x,y,n){return [[x-1,y],[x+1,y],[x,y-1],[x,y+1]].filter(([a,b])=>a>=0&&b>=0&&a<n&&b<n)}
 function groupInfo(grid,x,y){const color=grid[y][x],group=[],lib=new Set(),seen=new Set([`${x},${y}`]),stack=[[x,y]];while(stack.length){const [cx,cy]=stack.pop();group.push([cx,cy]);for(const [nx,ny] of neighbors(cx,cy,grid.length)){if(grid[ny][nx]===0)lib.add(`${nx},${ny}`);else if(grid[ny][nx]===color&&!seen.has(`${nx},${ny}`)){seen.add(`${nx},${ny}`);stack.push([nx,ny])}}}return {group,lib}}
 function applyMove(grid,color,x,y,checkKo=false,previous=null){const n=grid.length;if(x<0||y<0||x>=n||y>=n||grid[y][x])throw Error(tr('illegal'));const next=grid.map(r=>r.slice());next[y][x]=color;let captured=[];for(const [nx,ny] of neighbors(x,y,n)){if(next[ny][nx]===3-color){const g=groupInfo(next,nx,ny);if(!g.lib.size){captured.push(...g.group);for(const [gx,gy] of g.group)next[gy][gx]=0}}}if(!groupInfo(next,x,y).lib.size)throw Error(tr('illegal'));if(checkKo&&previous&&sameBoard(next,previous))throw Error(tr('illegal'));return {grid:next,captured}}
 function sameBoard(a,b){return a.length===b.length&&a.every((r,y)=>r.every((v,x)=>v===b[y][x]))}
-function decodePoint(value,n){if(value.length!==2)throw Error('Invalid SGF coordinate');const x=value.charCodeAt(0)-97,y=value.charCodeAt(1)-97;if(x<0||y<0||x>=n||y>=n)throw Error('SGF coordinate outside board');return [x,y]}
-function expandSetup(vals,n){const out=[];for(const val of vals||[]){if(val.includes(':')){const [a,b]=val.split(':').map(v=>decodePoint(v,n));for(let y=Math.min(a[1],b[1]);y<=Math.max(a[1],b[1]);y++)for(let x=Math.min(a[0],b[0]);x<=Math.max(a[0],b[0]);x++)out.push([x,y])}else out.push(decodePoint(val,n))}return out}
-function rebuild(){board=emptyBoard();captures={[BLACK]:0,[WHITE]:0};toPlay=BLACK;last=null;positionHistory=[board];for(const node of path){const p=node.props||{};let hadSetup=false;for(const [key,val] of [['AE',0],['AB',BLACK],['AW',WHITE]])for(const [x,y] of expandSetup(p[key],boardSize())){board[y][x]=val;hadSetup=true}if(hadSetup)positionHistory=[board];if(p.PL?.[0])toPlay=p.PL[0]==='W'?WHITE:BLACK;if(p.B||p.W){const color=p.B?BLACK:WHITE;toPlay=color;const value=(p.B||p.W)[0];if(value===''||(value==='tt'&&boardSize()<=19)){last={color,x:null,y:null,pass:true};toPlay=3-color;positionHistory.push(board);continue}const [x,y]=decodePoint(value,boardSize());const result=applyMove(board,color,x,y);board=result.grid;captures[color]+=result.captured.length;last={color,x,y};toPlay=3-color;positionHistory.push(board)}}}
-function appendMove(x,y,pass=false,capturedCount=null){if(path.length>2){const p1=path.at(-1).props,p2=path.at(-2).props;if((p1.B?.[0]===''||p1.W?.[0]==='')&&(p2.B?.[0]===''||p2.W?.[0]==='')){toast(tr('gameOver'));return}}pointer=null;touchPreviewAnchor=null;const color=toPlay;if(!pass&&capturedCount===null)try{capturedCount=applyMove(board,color,x,y).captured.length}catch{capturedCount=0}const props={};props[color===BLACK?'B':'W']=[pass?'':String.fromCharCode(97+x)+String.fromCharCode(97+y)];const node={props,children:[]};current.children.push(node);current=node;path.push(node);dirty=true;rebuild();if(!pass){if(capturedCount&&isCatSound())playCapture(capturedCount);else{playSound(prefs.sound);if(capturedCount)playCapture(capturedCount)}}refresh()}
-function navigateTo(target){const found=[];function search(node){found.push(node);if(node===target)return true;for(const c of node.children||[])if(search(c))return true;found.pop();return false}if(search(root)){pointer=null;touchPreviewAnchor=null;path=found;current=target;rebuild();refresh()}}
-function previous(){if(path.length>1){path.pop();current=path.at(-1);rebuild();refresh()}}
-function next(index=0){if(current.children?.length){const nextNode=current.children[index]||current.children[0];path.push(nextNode);current=nextNode;rebuild();refresh()}else toast(tr('noBranch'))}
-function updateComment(value){if(value.trim())current.props.C=[value];else delete current.props.C;dirty=true;refreshTree();writeStore('ng.autosave',serializeCollection())}
-function setProp(key,value){if(value==='')delete root.props[key];else root.props[key]=[value];dirty=true;refresh()}
+function installPosition(nodes, position) {
+  path = nodes;
+  current = nodes.at(-1);
+  ({board, captures, toPlay, last, positionHistory} = position);
+  pointer = touchPreviewAnchor = null;
+}
+function rebuild() {
+  installPosition(path, replayPath(path, applyMove));
+}
+function selectPath(nodes) {
+  try {
+    installPosition(nodes, replayPath(nodes, applyMove));
+  } catch {
+    toast(tr('badSgf'));
+    return;
+  }
+  refresh();
+  if (!dirty) saveRecovery();
+}
+function appendMove(x, y, pass = false) {
+  const size = boardSize();
+  const previousMoves = path.filter(node => node.props.B || node.props.W).slice(-2);
+  if (previousMoves.length === 2 && previousMoves.every(({props}) => isSgfPass((props.B || props.W)[0], size))) {
+    toast(tr('gameOver'));
+    return;
+  }
+  const color = toPlay;
+  const node = {props: {[color === BLACK ? 'B' : 'W']: [pass ? '' : String.fromCharCode(97+x, 97+y)]}, children: []};
+  const nodes = [...path, node];
+  if (!pass) {
+    const previousBoard = last && !last.pass ? positionHistory.at(-2) : null;
+    applyMove(board, color, x, y, true, previousBoard);
+  }
+  const position = replayPath(nodes, applyMove);
+  const captured = position.captures[color] - captures[color];
+  current.children.push(node);
+  installPosition(nodes, position);
+  dirty = true;
+  if (!pass && prefs.sound !== 'off') {
+    if (!captured || !isCatSound()) playSound(prefs.sound);
+    if (captured) playCapture(captured);
+  }
+  refresh();
+}
+function navigateTo(target){const found=[];function search(node){found.push(node);if(node===target)return true;for(const c of node.children||[])if(search(c))return true;found.pop();return false}if(search(root))selectPath(found)}
+function previous(){if(path.length>1)selectPath(path.slice(0,-1))}
+function next(index=0){if(current.children?.length)selectPath([...path,current.children[index]||current.children[0]]);else toast(tr('noBranch'))}
+function updateComment(value){if(value.trim())current.props.C=[value];else delete current.props.C;dirty=true;refreshTree();saveRecovery()}
+
 function serialize(node){return serializeSgf(node)}
+function saveRecovery(sgf=serializeCollection()) {
+  writeStore('ng.autosave', makeRecovery(sgf, collectionTrees, path, dirty));
+}
+
+function restoreRecovery() {
+  const raw = localStorage.getItem('ng.autosave');
+  if (!raw) { setupNew(); return; }
+  try {
+    const snapshot = readRecovery(raw, parseSgf);
+    ({trees: collectionTrees, root, current, path, dirty} = snapshot);
+    rebuild();
+  } catch (error) {
+    console.warn('Could not restore the game snapshot', error);
+    root = null;
+    dirty = false;
+    setupNew(Number(prefs.size), false);
+    toast(tr('badSgf'));
+  }
+}
+
 function serializeCollection(){return collectionTrees.map(serialize).join("\n")}
 function downloadSgf(){const data=serializeCollection();const blob=new Blob([data],{type:'application/x-go-sgf;charset=utf-8'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`${safeName(root.props.PB?.[0]||'nightygo')}-${new Date().toISOString().slice(0,10)}.sgf`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);dirty=false;refresh();toast(tr('saved'));saveLibrary(true)}
-function handicapPoints(size,count){const star=size===19?[3,9,15]:size===13?[3,6,9]:[2,4,6];const [lo,mid,hi]=star;return [[hi,lo],[lo,hi],[lo,lo],[hi,hi],[mid,mid],[mid,lo],[mid,hi],[lo,mid],[hi,mid]].slice(0,count).map(([x,y])=>String.fromCharCode(97+x)+String.fromCharCode(97+y))}
+function handicapPoints(size, count) {
+  const low = size >= 13 ? 3 : 2;
+  const high = size - 1 - low;
+  const mid = Math.floor(size / 2);
+  const points = [[high,low], [low,high], [high,high], [low,low]].slice(0, count);
+  if (count >= 6) points.push([low,mid], [high,mid]);
+  if (count >= 8) points.push([mid,low], [mid,high]);
+  if ([5,7,9].includes(count)) points.push([mid,mid]);
+  return points.map(([x,y]) => String.fromCharCode(97+x, 97+y));
+}
+for (const [locale, label] of Object.entries({'zh-Hant':'和棋', 'zh-Hans':'和棋', en:'Draw', ja:'持碁', ko:'무승부'})) {
+  I18N[locale].scoreDraw = label;
+}
 function scoreGame(){
   if(showRuleEstimate){showRuleEstimate=false;ruleEstimate=null;ruleOwnershipMap=null;toast(tr('overlayHidden'))}
-  else{ruleEstimate=estimateRulePosition(board,Number(root.props.KM?.[0]??6.5));ruleOwnershipMap=ruleEstimate.ownership;deadStoneMap=ruleEstimate.deadStones;ruleEstimateBoard=board;ruleEstimateNode=current;ruleEstimateKomi=Number(root.props.KM?.[0]??6.5);showRuleEstimate=true;toast(tr('scoreEstimate',{black:ruleEstimate.black.toFixed(1),white:ruleEstimate.white.toFixed(1),result:tr(ruleEstimate.winner==='B'?'scoreBlack':'scoreWhite')+' '+ruleEstimate.diff.toFixed(1),dead:ruleEstimate.deadGroupCount}),6500)}
+  else{ruleEstimate=estimateRulePosition(board,Number(root.props.KM?.[0]??6.5));ruleOwnershipMap=ruleEstimate.ownership;deadStoneMap=ruleEstimate.deadStones;ruleEstimateBoard=board;ruleEstimateNode=current;ruleEstimateKomi=Number(root.props.KM?.[0]??6.5);showRuleEstimate=true;toast(tr('scoreEstimate',{black:ruleEstimate.black.toFixed(1),white:ruleEstimate.white.toFixed(1),result:ruleEstimate.winner==='0'?tr('scoreDraw'):tr(ruleEstimate.winner==='B'?'scoreBlack':'scoreWhite')+' '+ruleEstimate.diff.toFixed(1),dead:ruleEstimate.deadGroupCount}),6500)}
   updateOverlayToggles();drawBoard();
 }
 function toggleDeadSuggestions(){if(!ruleEstimate||ruleEstimateBoard!==board||ruleEstimateNode!==current||ruleEstimateKomi!==Number(root.props.KM?.[0]??6.5)){ruleEstimate=estimateRulePosition(board,Number(root.props.KM?.[0]??6.5));ruleOwnershipMap=ruleEstimate.ownership;deadStoneMap=ruleEstimate.deadStones;ruleEstimateBoard=board;ruleEstimateNode=current;ruleEstimateKomi=Number(root.props.KM?.[0]??6.5)}showDeadSuggestions=!showDeadSuggestions;updateOverlayToggles();drawBoard();const message=!showDeadSuggestions?'deadSuggestionsHidden':ruleEstimate.deadGroupCount?'deadSuggestionSummary':'deadSuggestionNone';toast(tr(message,{count:ruleEstimate.deadGroupCount}))}
-function toggleAiOwnership(){if(!ownershipMap?.length)return;showAiOwnership=!showAiOwnership;updateOverlayToggles();drawBoard()}
+function toggleAiOwnership(){if(!ownershipMap?.length)return;showAiOwnership=!showAiOwnership;ownershipEnabled=showAiOwnership;updateOverlayToggles();drawBoard()}
 function updateOverlayToggles(){
   const ruleButton=$('#score-game'),deadButton=$('#dead-stones-toggle'),aiButton=$('#ai-territory-toggle'),badge=$('#board-estimate');
   if(ruleButton){ruleButton.setAttribute('aria-pressed',String(showRuleEstimate));ruleButton.classList.toggle('active',showRuleEstimate)}
@@ -348,9 +609,27 @@ function updateOverlayToggles(){
 }
 
 function safeName(s){return s.toLowerCase().replace(/[^a-z0-9-_]+/g,'-').replace(/^-|-$/g)||'game'}
-function saveLibrary(toastIt=true){if(!root)return;const sgf=serializeCollection(),meta=root.props;const title=`${meta.PB?.[0]||'Black'} – ${meta.PW?.[0]||'White'}`;const old=library.find(g=>g.sgf===sgf);library=[{id:old?.id||Date.now(),title,event:meta.EV?.[0]||'',result:meta.RE?.[0]||'',tags:old?.tags||[],sgf,updated:new Date().toISOString()},...library.filter(g=>g.sgf!==sgf)].slice(0,100);writeStore('ng.library',library);writeStore('ng.autosave',sgf);dirty=false;refreshLibrary();refreshHeader();if(toastIt)toast(tr('saveFirst'))}
-function loadSgfTree(tree, collection=[tree]){collectionTrees=collection;root=tree;current=root;path=[root];while(current.children?.length){current=current.children[0];path.push(current)}dirty=false;rebuild();refresh();writeStore('ng.autosave',serializeCollection());toast(tr('loaded'))}
-function refresh(){if(analysisActive&&engineBoardSize&&engineBoardSize!==boardSize())stopAnalysis();else if(analysisActive&&analysisTargetNode&&(analysisTargetNode!==current||analysisTargetBoard!==board||analysisTargetKomi!==Number(root.props.KM?.[0]||7.5)))requestAnalysisRestart();if(ruleEstimateBoard&&(ruleEstimateBoard!==board||ruleEstimateNode!==current||ruleEstimateKomi!==Number(root.props.KM?.[0]??6.5))){ruleEstimate=null;ruleOwnershipMap=null;deadStoneMap=null;ruleEstimateBoard=null;ruleEstimateNode=null;ruleEstimateKomi=null;showRuleEstimate=false;showDeadSuggestions=false}if(engineBoardSize&&engineBoardSize!==boardSize()){terminateEngineWorker();engineBoardSize=0;engineReady=false;analyzedNode=null;analyzedBoard=null;ownershipMap=null;showAiOwnership=false;candidateAnalysis=[];$('#analyze-position').disabled=true;$('#play-ai').disabled=true;$('#review-game').disabled=true;$('#engine-message').textContent=tr('boardSizeChanged')}if(analyzedNode&&(analyzedNode!==current||analyzedBoard!==board)){analyzedNode=null;analyzedBoard=null;ownershipMap=null;showAiOwnership=false;candidateAnalysis=[];$('#analysis-results').hidden=true;$('#candidate-list').replaceChildren();updateBoardCandidateCallout();$('#ai-empty').hidden=false;if(engineReady)$('#engine-message').textContent=tr('positionChanged')}updateOverlayToggles();refreshBoard();refreshHeader();refreshControls();refreshTree();refreshInfo();refreshLibrary();$('#comment').value=current.props.C?.join('\n')||'';$('#tree-count').textContent=countNodes(root);$('#move-position').textContent=`${path.length-1} / ${countNodes(root)-1}`;$('#undo').disabled=path.length<=1;$('#redo').disabled=!current.children?.length;$('#previous').disabled=path.length<=1;$('#next').disabled=!current.children?.length;if(dirty)writeStore('ng.autosave',serializeCollection())}
+function saveLibrary(toastIt=true){if(!root)return;const sgf=serializeCollection(),meta=root.props;const title=`${meta.PB?.[0]||'Black'} – ${meta.PW?.[0]||'White'}`;const old=library.find(g=>g.sgf===sgf);library=[{id:old?.id||Date.now(),title,event:meta.EV?.[0]||'',result:meta.RE?.[0]||'',tags:old?.tags||[],sgf,updated:new Date().toISOString()},...library.filter(g=>g.sgf!==sgf)].slice(0,100);writeStore('ng.library',library);dirty=false;saveRecovery(sgf);refreshLibrary();refreshHeader();if(toastIt)toast(tr('saveFirst'))}
+function loadSgfTree(tree, collection = [tree]) {
+  const nodes = [tree];
+  while (nodes.at(-1).children.length) nodes.push(nodes.at(-1).children[0]);
+  let position;
+  try {
+    position = replayPath(nodes, applyMove);
+  } catch {
+    toast(tr('badSgf'));
+    return;
+  }
+  if (dirty) saveLibrary(false);
+  collectionTrees = collection;
+  root = tree;
+  installPosition(nodes, position);
+  dirty = false;
+  refresh();
+  saveRecovery();
+  toast(tr('loaded'));
+}
+function refresh(){if (reviewLine.length && reviewLine[0] !== root) {reviewLine=[];renderReviewResults()}if(analysisActive&&engineBoardSize&&engineBoardSize!==boardSize())stopAnalysis();else if(analysisActive&&analysisTargetNode&&(analysisTargetNode!==current||analysisTargetBoard!==board||analysisTargetKomi!==gameKomi()))requestAnalysisRestart();if(ruleEstimateBoard&&(ruleEstimateBoard!==board||ruleEstimateNode!==current||ruleEstimateKomi!==Number(root.props.KM?.[0]??6.5))){ruleEstimate=null;ruleOwnershipMap=null;deadStoneMap=null;ruleEstimateBoard=null;ruleEstimateNode=null;ruleEstimateKomi=null;showRuleEstimate=false;showDeadSuggestions=false}if(engineBoardSize&&engineBoardSize!==boardSize()){terminateEngineWorker();$('#engine-message').textContent=tr('boardSizeChanged')}if(analyzedNode&&(analyzedNode!==current||analyzedBoard!==board||analyzedKomi!==gameKomi())){clearPositionAnalysis();if(engineReady)$('#engine-message').textContent=tr(analysisActive?'analysisRunning':'positionChanged')}updateOverlayToggles();refreshBoard();refreshHeader();refreshControls();refreshTree();refreshInfo();refreshLibrary();$('#comment').value=current.props.C?.join('\n')||'';$('#tree-count').textContent=countNodes(root);$('#undo').disabled=path.length<=1;$('#redo').disabled=!current.children?.length;$('#previous').disabled=path.length<=1;$('#next').disabled=!current.children?.length;if(dirty)saveRecovery()}
 function restorePanelOrder(){const panelBox=$('#side-panels'),fallback=['analysis-panel','tree-panel','info-panel'];let order=readStore('ng.panel-order',fallback);if(!Array.isArray(order)||new Set(order).size!==fallback.length||fallback.some(id=>!order.includes(id)))order=fallback;for(const id of order){const panel=document.getElementById(id);if(panel)panelBox.append(panel)}}
 function savePanelOrder(){writeStore('ng.panel-order',[...$('#side-panels').children].map(panel=>panel.id))}
 function bindPanelReordering(){
@@ -367,8 +646,8 @@ function bindPanelReordering(){
   box.querySelectorAll('.panel-drag-handle').forEach(handle=>handle.addEventListener('keydown',event=>{if(!event.altKey||!['ArrowUp','ArrowDown'].includes(event.key))return;event.preventDefault();const panel=handle.closest('.panel'),sibling=event.key==='ArrowUp'?panel.previousElementSibling:panel.nextElementSibling;if(!sibling)return;box.insertBefore(panel,event.key==='ArrowUp'?sibling:sibling.nextSibling);savePanelOrder();handle.focus()}));
 }
 function countNodes(node){return 1+(node.children||[]).reduce((a,c)=>a+countNodes(c),0)}
-function refreshHeader(){const p=root.props;$('#game-name').textContent=p.GN?.[0]||`${p.PB?.[0]||tr('blackPlayer')}${tr('versus')}${p.PW?.[0]||tr('whitePlayer')}`;$('#game-meta').innerHTML=`${boardSize()} × ${boardSize()} <span>·</span> ${dirty?tr('unsaved'):(p.DT?.[0]||tr('unsaved'))}`}
-function refreshControls(){$('#turn-label').textContent=tr(toPlay===BLACK?'blackTurn':'whiteTurn');$('#turn-pill .stone-chip').className=`stone-chip ${toPlay===BLACK?'black':'white'}`;$('#black-captures').textContent=captures[BLACK];$('#white-captures').textContent=captures[WHITE];$('#move-count').textContent=Math.max(0,path.length-1);$('#game-meta').setAttribute('title',dirty?tr('unsavedChanges'):'')}
+function refreshHeader(){const p=root.props;$('#game-name').textContent=p.GN?.[0]||`${p.PB?.[0]||tr('blackPlayer')}${tr('versus')}${p.PW?.[0]||tr('whitePlayer')}`;$('#game-meta').textContent=`${boardSize()} × ${boardSize()} · ${dirty ? tr('unsaved') : (p.DT?.[0] || tr('localSgf'))}`}
+function refreshControls(){$('#turn-label').textContent=tr(toPlay===BLACK?'blackTurn':'whiteTurn');$('#turn-pill .stone-chip').className=`stone-chip ${toPlay===BLACK?'black':'white'}`;$('#black-captures').textContent=captures[BLACK];$('#white-captures').textContent=captures[WHITE];const {played,total}=variationMoveCounts(path);$('#move-count').textContent=played;$('#move-position').textContent=`${played} / ${total}`;$('#game-meta').setAttribute('title',dirty?tr('unsavedChanges'):'')}
 function refreshInfo(){const p=root.props;$('#info-black').textContent=p.PB?.[0]||'—';$('#info-white').textContent=p.PW?.[0]||'—';$('#info-event').textContent=p.EV?.[0]||'—';$('#info-result').textContent=p.RE?.[0]||'—';$('#info-komi').textContent=p.KM?.[0]||'—'}
 function refreshLibrary(){const q=$('#library-search').value.toLocaleLowerCase();const found=library.filter(g=>(g.title+' '+g.event+' '+g.result+' '+(g.tags||[]).join(' ')).toLocaleLowerCase().includes(q));$('#library-list').innerHTML=found.length?found.map(g=>`<article class="library-card" data-lib="${g.id}"><b>${escapeHtml(g.title)}</b><span>${escapeHtml(g.event||tr('localSgf'))} · ${escapeHtml(g.result||'—')}</span><input class="library-tags" data-tags="${g.id}" value="${escapeHtml((g.tags||[]).join(', '))}" placeholder="${tr('tagsPlaceholder')}" aria-label="${tr('tagsAriaLabel')}" /></article>`).join(''):`<div class="library-empty">${tr('noGames')}</div>`;document.querySelectorAll('[data-lib]').forEach(el=>el.onclick=e=>{if(e.target.matches('.library-tags'))return;const g=library.find(v=>v.id===Number(el.dataset.lib));if(g)try{const games=parseSgf(g.sgf);loadSgfTree(games[0],games)}catch{toast(tr('badSgf'))}});document.querySelectorAll('.library-tags').forEach(input=>input.onchange=()=>{const g=library.find(v=>v.id===Number(input.dataset.tags));if(g){g.tags=input.value.split(',').map(t=>t.trim()).filter(Boolean);writeStore('ng.library',library);toast(tr('tagsSaved'))}})}
 function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
@@ -392,21 +671,8 @@ function refreshTree() {
   svg.style.width = '100%';
   svg.style.height = '100%';
 
-  const nodes = [];
-  const edges = [];
-  let maxY = 0;
-  function layout(node, x, y) {
-    nodes.push({node, x, y});
-    maxY = Math.max(maxY, y);
-    for (const [index, child] of (node.children || []).entries()) {
-      if (mainOnly && index > 0) continue;
-      const childX = index === 0 ? x : x + index + 1;
-      edges.push({from: {x, y}, to: {x: childX, y: y + 1}, active: path.includes(node) && path.includes(child)});
-      layout(child, childX, y + 1);
-    }
-  }
-  layout(root, 0, 0);
-
+  const {nodes, edges} = layoutGameTree(root, mainOnly);
+  const activePath = new Set(path);
   const stepX = 62, stepY = 35, pad = 26;
   const background = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
   background.setAttribute('class', 'tree-pan-surface');
@@ -420,7 +686,7 @@ function refreshTree() {
     const x1 = pad + edge.from.x * stepX, y1 = pad + edge.from.y * stepY;
     const x2 = pad + edge.to.x * stepX, y2 = pad + edge.to.y * stepY;
     line.setAttribute('d', x1 === x2 ? `M ${x1} ${y1 + 8} L ${x2} ${y2 - 8}` : `M ${x1} ${y1 + 8} C ${x1} ${y1 + 19}, ${x2} ${y2 - 19}, ${x2} ${y2 - 8}`);
-    line.setAttribute('class', `tree-link ${edge.active ? 'active' : ''}`);
+    line.setAttribute('class', `tree-link ${activePath.has(edge.to.node) ? 'active' : ''}`);
     svg.append(line);
   }
   for (const item of nodes) {
@@ -431,10 +697,14 @@ function refreshTree() {
     group.setAttribute('transform', `translate(${pad + x * stepX},${pad + y * stepY})`);
     group.setAttribute('role', 'treeitem');
     group.setAttribute('tabindex', '0');
-    group.innerHTML = color ? `<circle r="8"></circle><text x="12" y="4">${y}</text>` : '<rect x="-5" y="-5" width="10" height="10" rx="2" fill="#71829f" stroke="none"></rect>';
+    group.innerHTML = color ? `<circle r="8"></circle><text x="12" y="4">${item.move}</text>` : '<rect x="-5" y="-5" width="10" height="10" rx="2" fill="#71829f" stroke="none"></rect>';
     group.onclick = () => navigateTo(node);
     group.onkeydown = event => {
-      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); navigateTo(node); }
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        navigateTo(node);
+        svg.querySelector('.tree-node.current')?.focus({preventScroll:true});
+      }
     };
     svg.append(group);
   }
@@ -823,17 +1093,72 @@ async function checkGpu(){gpuReason='checking';gpuState='unknown';refreshGpuLang
 function applyInterfaceTheme(theme){document.body.classList.toggle('light',theme==='light');document.body.classList.toggle('mimi',theme==='mimi')}
 function applyPrefs(){document.documentElement.style.setProperty('--font',`${prefs.font}px`);applyInterfaceTheme(prefs.theme);$('#theme').value=prefs.theme;$('#board-material').value=prefs.board;$('#stone-material').value=prefs.stones;const activeSize=root?boardSize():prefs.size;if(!Array.from($('#board-size').options).some(o=>Number(o.value)===activeSize))$('#board-size').add(new Option(activeSize,activeSize));$('#board-size').value=String(activeSize);$('#font-size').value=prefs.font;$('#font-value').value=`${prefs.font} px`;$('#placement-sound').value=prefs.sound;$('#motion').value=prefs.motion;drawBoard();drawStonePreviews()}
 function drawStonePreviews(){for(const [selector,color] of [['#stone-preview-black',BLACK],['#stone-preview-white',WHITE]]){const canvas=$(selector);if(!canvas)continue;const context=canvas.getContext('2d');context.clearRect(0,0,canvas.width,canvas.height);context.save();context.scale(canvas.width/96,canvas.height/72);paintStone(context,48,36,25,color);context.restore()}}
+const infoFields = {PB: 'edit-black', PW: 'edit-white', EV: 'edit-event', RE: 'edit-result', KM: 'edit-komi'};
+
+function openGameInfo() {
+  for (const [key, id] of Object.entries(infoFields)) {
+    document.getElementById(id).value = root.props[key]?.[0] ?? '';
+  }
+  const handicap = $('#edit-handicap');
+  handicap.value = root.props.HA?.[0] ?? '0';
+  handicap.disabled = ![9,13,19].includes(boardSize()) || root.children.length > 0 || !!(root.props.B || root.props.W);
+  $('#info-dialog').showModal();
+}
+
+function applyGameInfo(event) {
+  if (event.submitter?.value !== 'default') return;
+  const handicap = Number($('#edit-handicap').value);
+  if (!$('#edit-handicap').disabled && handicap !== Number(root.props.HA?.[0] || 0)) {
+    if (handicap) {
+      root.props.HA = [String(handicap)];
+      root.props.AB = handicapPoints(boardSize(), handicap);
+      root.props.PL = ['W'];
+    } else {
+      delete root.props.HA;
+      delete root.props.AB;
+      delete root.props.PL;
+    }
+    rebuild();
+  }
+  for (const [key, id] of Object.entries(infoFields)) {
+    const value = document.getElementById(id).value.trim();
+    if (value) root.props[key] = [value];
+    else delete root.props[key];
+  }
+  dirty = true;
+  refresh();
+  toast(tr('metadataSaved'));
+}
+
 function openSettings(){const d=$('#settings-dialog');d.dataset.before=JSON.stringify(prefs);applyPrefs();d.showModal()}
 function restoreSettings(){const before=$('#settings-dialog').dataset.before;if(before){prefs=JSON.parse(before);applyPrefs()}}
 function showGameChooser(games){const dialog=$('#game-chooser');const select=$('#game-choice');select.innerHTML=games.map((g,i)=>{const name=escapeHtml(g.props.GN?.[0]||g.props.PB?.[0]||tr('unknownGame'));return `<option value="${i}">${i+1}. ${tr('gameEntry',{name,nodes:countNodes(g)})}</option>`}).join('');dialog.showModal();$('#choose-game').onclick=()=>{const index=Number(select.value);loadSgfTree(games[index],games)}}
 function bind(){
  $('#language').onchange=e=>{language=e.target.value;localStorage.removeItem(LANGUAGE_COOKIE);saveLanguageCookie(language);applyLanguage();refresh();refreshModels().catch(error=>console.warn('Could not refresh localized model list',error))};$('#settings-open').onclick=openSettings;
- $('#new-game').onclick=()=>{if(dirty)saveLibrary(false);setupNew(Number(prefs.size))};$('#import-button').onclick=()=>$('#file-input').click();$('#file-input').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{if(dirty)saveLibrary(false);const bytes=await f.arrayBuffer();const header=new TextDecoder('ascii').decode(bytes.slice(0,8192));const charset=header.match(/\bCA\[([^\]]+)\]/)?.[1]||'ISO-8859-1';let contents;try{contents=new TextDecoder(charset).decode(bytes)}catch{contents=new TextDecoder('utf-8').decode(bytes)}const games=parseSgf(contents);loadSgfTree(games[0],games);if(games.length>1)showGameChooser(games)}catch(err){console.error(err);toast(tr('badSgf'))}e.target.value=''};
- $('#save-sgf').onclick=downloadSgf;$('#send-mail').onclick=openMailDialog;$('#mail-address').oninput=e=>{if(e.target.checkValidity()&&e.target.value.trim())localStorage.setItem('ng.mail-address',e.target.value.trim())};$('#open-mail').onclick=sendGameMail;$('#score-game').onclick=scoreGame;$('#dead-stones-toggle').onclick=toggleDeadSuggestions;$('#ai-territory-toggle').onclick=toggleAiOwnership;$('#undo').onclick=previous;$('#redo').onclick=()=>next(0);$('#previous').onclick=previous;$('#next').onclick=()=>next(0);$('#first').onclick=()=>navigateTo(root);$('#last').onclick=()=>{let n=root;while(n.children?.length)n=n.children[0];navigateTo(n)};$('#pass').onclick=()=>appendMove(0,0,true);$('#main-line').onclick=()=>{$('#main-line').classList.toggle('active');refreshTree()};$('#collapse-tree').onclick=()=>{treePan.x=0;treePan.y=0;$('#tree-scroll').scrollTo({left:0,top:0,behavior:'smooth'});refreshTree()};bindTreePan();$('#review-game').onclick=reviewGame;$('#check-gpu').onclick=checkGpu;$('#model-center').onclick=openModelCenter;$('#model-dialog').addEventListener('close',()=>{if(resumeAnalysisAfterConfig&&engineReady){resumeAnalysisAfterConfig=false;toggleAnalysis()}});document.querySelectorAll('[data-model-url]').forEach(button=>button.onclick=()=>downloadOfficialModel(button.dataset.modelUrl,button.dataset.modelName).catch(()=>{}));$('#model-file').onchange=e=>importModel(e.target.files[0]).catch(err=>toast(err.message));$('#save-ai-config').onclick=downloadAiConfig;$('#export-ai-config').onclick=()=>{const config=storedAiConfig();if(!config)return;const blob=new Blob([JSON.stringify(config,null,2)+'\n'],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='nightygo-ai-profile.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)};$('#ai-config-file').onchange=e=>importAiConfig(e.target.files[0]).catch(err=>toast(err.message));$('#search-visits').onchange=refreshAiSetup;$('#search-time').onchange=refreshAiSetup;$('#load-model').onclick=()=>loadSelectedModel().catch(err=>toast(err.message));$('#analyze-position').onclick=toggleAnalysis;$('#play-ai').onclick=playAiMove;
- $('#markup-tool').onchange=e=>{pendingLinePoint=null;$('#markup-label').disabled=e.target.value!=='LB';drawBoard()};$('#markup-label').disabled=true;const canvas=$('#go-board');canvas.onpointermove=e=>{const p=boardPoint(e.clientX,e.clientY);pointer=p.distance<canvas.getBoundingClientRect().width*.055?{x:p.x,y:p.y,touchPreview:e.pointerType==='touch'}:null;drawBoard()};canvas.onpointerleave=e=>{if(e.pointerType!=='touch'){pointer=null;drawBoard()}};canvas.onpointerdown=e=>{if(e.button!==0)return;const p=boardPoint(e.clientX,e.clientY);if(p.distance>canvas.getBoundingClientRect().width*.055)return;if(addMarkup(p.x,p.y))return;if(e.pointerType==='touch'){const samePoint=touchPreviewAnchor?.x===p.x&&touchPreviewAnchor?.y===p.y;if(!samePoint){touchPreviewAnchor={x:p.x,y:p.y};pointer={x:p.x,y:p.y,touchPreview:true};drawBoard();return}touchPreviewAnchor=null;pointer=null;drawBoard()}try{const ko=last&&!last.pass&&positionHistory.length>1?positionHistory.at(-2):null;const result=applyMove(board,toPlay,p.x,p.y,true,ko);const cap=result.captured.length;appendMove(p.x,p.y,false,cap)}catch(err){toast(err.message||tr('illegal'))}};canvas.onkeydown=e=>{if(e.key==='ArrowLeft')previous();if(e.key==='ArrowRight')next(0)};window.addEventListener('resize',()=>{resizeCanvas();refreshTree()});new ResizeObserver(()=>{resizeCanvas();refreshTree()}).observe($('#board-wrap'));
- $('#save-comment').onclick=()=>{updateComment($('#comment').value);toast(tr('commentSaved'))};$('#edit-info').onclick=()=>{for(const [id,key] of [['edit-black','PB'],['edit-white','PW'],['edit-event','EV'],['edit-result','RE'],['edit-komi','KM']])$('#'+id).value=root.props[key]?.[0]||'';$('#info-dialog').showModal()};$('#apply-info').onclick=()=>{for(const [id,key] of [['edit-black','PB'],['edit-white','PW'],['edit-event','EV'],['edit-result','RE'],['edit-komi','KM']])setProp(key,$('#'+id).value.trim());const handicap=Math.max(0,Math.min(9,Number($('#edit-handicap').value)||0));if(path.length>1&&handicap!==Number(root.props.HA?.[0]||0)){toast(tr('handicapBeforeStart'));return}setProp('HA',handicap?String(handicap):'');if(path.length===1){if(handicap)root.props.AB=handicapPoints(boardSize(),handicap);else delete root.props.AB;if(handicap)root.props.PL=['W'];else delete root.props.PL;rebuild();refresh()}toast(tr('metadataSaved'))};$('#library-search').oninput=refreshLibrary;
+ $('#new-game').onclick=()=>{if(dirty)saveLibrary(false);setupNew(Number(prefs.size))};$('#import-button').onclick=()=>$('#file-input').click();$('#file-input').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const games=parseSgfBytes(await f.arrayBuffer());if(games.length>1)showGameChooser(games);else loadSgfTree(games[0],games)}catch(err){console.error(err);toast(tr('badSgf'))}e.target.value=''};
+ $('#save-sgf').onclick=downloadSgf;$('#send-mail').onclick=openMailDialog;$('#mail-address').oninput=e=>{if(e.target.checkValidity()&&e.target.value.trim())localStorage.setItem('ng.mail-address',e.target.value.trim())};$('#open-mail').onclick=sendGameMail;$('#score-game').onclick=scoreGame;$('#dead-stones-toggle').onclick=toggleDeadSuggestions;$('#ai-territory-toggle').onclick=toggleAiOwnership;$('#undo').onclick=previous;$('#redo').onclick=()=>next(0);$('#previous').onclick=previous;$('#next').onclick=()=>next(0);$('#first').onclick=()=>navigateTo(root);$('#last').onclick=()=>{let n=current;while(n.children?.length)n=n.children[0];navigateTo(n)};$('#pass').onclick=()=>appendMove(0,0,true);$('#main-line').onclick=()=>{$('#main-line').classList.toggle('active');refreshTree()};$('#collapse-tree').onclick=()=>{treePan.x=0;treePan.y=0;$('#tree-scroll').scrollTo({left:0,top:0,behavior:'smooth'});refreshTree()};bindTreePan();$('#review-game').onclick=reviewGame;$('#check-gpu').onclick=checkGpu;$('#model-center').onclick=openModelCenter;$('#model-dialog').addEventListener('close',()=>{if(resumeAnalysisAfterConfig&&engineReady){resumeAnalysisAfterConfig=false;toggleAnalysis()}});document.querySelectorAll('[data-model-url]').forEach(button=>button.onclick=()=>downloadOfficialModel(button.dataset.modelUrl,button.dataset.modelName).catch(()=>{}));$('#model-file').onchange=e=>importModel(e.target.files[0]);$('#save-ai-config').onclick=downloadAiConfig;$('#export-ai-config').onclick=()=>{const config=storedAiConfig();if(!config)return;const blob=new Blob([JSON.stringify(config,null,2)+'\n'],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='nightygo-ai-profile.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)};$('#ai-config-file').onchange=e=>importAiConfig(e.target.files[0]).catch(err=>toast(err.message));$('#load-model').onclick=()=>loadSelectedModel().catch(err=>toast(err.message));$('#analyze-position').onclick=toggleAnalysis;$('#play-ai').onclick=playAiMove;
+ $('#markup-tool').onchange=e=>{pendingLinePoint=null;$('#markup-label').disabled=e.target.value!=='LB';drawBoard()};$('#markup-label').disabled=true;const canvas=$('#go-board');bindBoardPointers(canvas, {
+   pointAt(event) {
+     const point = boardPoint(event.clientX, event.clientY);
+     if (point.x < 0 || point.x >= point.n || point.y < 0 || point.y >= point.n) return null;
+     return point.distance <= canvas.getBoundingClientRect().width * .055 ? point : null;
+   },
+   previewAt(point, touchPreview) {
+     pointer = point && {x: point.x, y: point.y, touchPreview};
+     touchPreviewAnchor = touchPreview ? pointer : null;
+     drawBoard();
+   },
+   getPreview: () => touchPreviewAnchor,
+   position: () => board,
+   mark: point => addMarkup(point.x, point.y),
+   play(point) {
+     try { appendMove(point.x, point.y); }
+     catch (error) { toast(error.message || tr('illegal')); }
+   },
+ });canvas.onkeydown=e=>{if(e.key==='ArrowLeft')previous();if(e.key==='ArrowRight')next(0)};window.addEventListener('resize',()=>{resizeCanvas();refreshTree()});new ResizeObserver(()=>{resizeCanvas();refreshTree()}).observe($('#board-wrap'));
+ $('#save-comment').onclick=()=>{updateComment($('#comment').value);toast(tr('commentSaved'))};$('#edit-info').onclick=openGameInfo;$('#info-dialog form').onsubmit=applyGameInfo;$('#library-search').oninput=refreshLibrary;
  $('#font-size').oninput=e=>{$('#font-value').value=`${e.target.value} px`;document.documentElement.style.setProperty('--font',`${e.target.value}px`)};$('#preview-sound').onclick=()=>playSound($('#placement-sound').value);$('#theme').onchange=e=>applyInterfaceTheme(e.target.value);$('#motion').onchange=e=>{prefs.motion=e.target.value;drawBoard()};$('#board-material').onchange=e=>{prefs.board=e.target.value;drawBoard()};$('#stone-material').onchange=e=>{prefs.stones=e.target.value;drawBoard();drawStonePreviews()};$('#save-settings').onclick=()=>{const newSize=Number($('#board-size').value);prefs={...prefs,theme:$('#theme').value,board:$('#board-material').value,stones:$('#stone-material').value,size:newSize,font:Number($('#font-size').value),sound:$('#placement-sound').value,motion:$('#motion').value};if(newSize!==boardSize()){prefs.size=newSize;setupNew(newSize);toast(tr('settingsApplied'))}else{writeStore('ng.preferences',prefs);applyPrefs();toast(tr('settingsApplied'))}};$('#settings-dialog').addEventListener('close',()=>{if($('#settings-dialog').returnValue!=='default')restoreSettings();else{prefs={...prefs,theme:$('#theme').value,board:$('#board-material').value,stones:$('#stone-material').value,font:Number($('#font-size').value),sound:$('#placement-sound').value,motion:$('#motion').value};writeStore('ng.preferences',prefs);applyPrefs()}});
- $('#install-app').onclick=async()=>{if(pendingInstall){pendingInstall.prompt();pendingInstall=null;$('#install-app').hidden=true}};window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();pendingInstall=e;$('#install-app').hidden=false});window.addEventListener('beforeunload',e=>{if(root&&dirty){writeStore('ng.autosave',serializeCollection());e.preventDefault();e.returnValue=''}});
+ $('#install-app').onclick=async()=>{if(pendingInstall){pendingInstall.prompt();pendingInstall=null;$('#install-app').hidden=true}};window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();pendingInstall=e;$('#install-app').hidden=false});window.addEventListener('beforeunload',e=>{if(root&&dirty){saveRecovery();e.preventDefault();e.returnValue=''}});
 }
-function init(){restorePanelOrder();applyLanguage();applyPrefs();drawStonePreviews();bind();bindPanelReordering();const auto=localStorage.getItem('ng.autosave');if(auto){try{const trees=parseSgf(auto);collectionTrees=trees;const tree=trees[0];root=tree;current=root;path=[root];while(current.children?.length){current=current.children[0];path.push(current)}dirty=true}catch{setupNew()}}else setupNew();refresh();refreshModels().then(models=>{const remembered=localStorage.getItem('ng.last-model-id');if(remembered&&models.some(model=>model.id===remembered))loadSelectedModel({automatic:true,id:remembered}).catch(error=>{console.warn('Could not restore the last KataGo model',error);toast(error.message)})}).catch(error=>console.warn('Could not read local models',error));checkGpu();if('serviceWorker'in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('sw.js').catch(()=>{});}
+function init(){restorePanelOrder();applyLanguage();applyPrefs();drawStonePreviews();bind();bindPanelReordering();restoreRecovery();refresh();refreshModels().then(models=>{const remembered=localStorage.getItem('ng.last-model-id');if(remembered&&models.some(model=>model.id===remembered))loadSelectedModel({automatic:true,id:remembered}).catch(error=>{console.warn('Could not restore the last KataGo model',error);toast(error.message)})}).catch(error=>console.warn('Could not read local models',error));checkGpu();if('serviceWorker'in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('sw.js').catch(()=>{});}
 init();
